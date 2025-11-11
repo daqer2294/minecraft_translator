@@ -1,0 +1,13 @@
+# secrets & cache
+secrets.json
+translations_cache.json
+
+# env / build
+.venv/
+dist/
+build/
+__pycache__/
+*.spec
+
+# system
+.DS_Store
