@@ -3,8 +3,7 @@ name: Build Windows EXE
 on:
   workflow_dispatch:
   push:
-    branches:
-      - master
+    branches: [ master ]
 
 jobs:
   build:
@@ -25,11 +24,9 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build EXE
-        run: |
-          pyinstaller --noconfirm --clean --windowed --onefile ^
-            --name "MinecraftTranslator" ^
-            src/gui_main.py
+      - name: Build EXE (cmd)
+        shell: cmd
+        run: pyinstaller --noconfirm --clean --windowed --onefile --name MinecraftTranslator src\gui_main.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
