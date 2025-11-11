@@ -1,15 +1,21 @@
 name: Build Windows EXE
+
 on:
   workflow_dispatch:
   push:
-    branches: [ master ]
+    branches:
+      - master
 
 jobs:
   build:
     runs-on: windows-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -23,8 +29,7 @@ jobs:
         run: |
           pyinstaller --noconfirm --clean --windowed --onefile ^
             --name "MinecraftTranslator" ^
-            --paths . ^
-            src\gui_main.py
+            src/gui_main.py
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
