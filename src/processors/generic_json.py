@@ -8,16 +8,20 @@ from .. import config
 
 def _translate_value(val: Any, key_hint: str, translator):
     if isinstance(val, str):
-        if key_hint in config.GENERIC_TEXT_KEYS or is_probably_text(val, config.SAFE_MAX_LEN):
+        # Для JSON-описаний переводим:
+        #   – если ключ "похож" на текстовый
+        #   – ИЛИ если сама строка очень похожа на обычный текст
+        if (key_hint in config.GENERIC_TEXT_KEYS or
+                is_probably_text(val, config.SAFE_MAX_LEN)):
             return translator.translate(val, target_lang=config.TARGET_LANG)
         return val
+
     if isinstance(val, list):
-        out: List[Any] = []
-        for item in val:
-            out.append(_translate_value(item, key_hint, translator))
-        return out
+        return [_translate_value(item, key_hint, translator) for item in val]
+
     if isinstance(val, dict):
         return _translate_obj(val, translator)
+
     return val
 
 
@@ -32,8 +36,11 @@ def _translate_obj(obj: Dict[str, Any], translator):
 def translate_generic_json_file(src_path: str, dst_path: str, translator) -> None:
     with open(src_path, "r", encoding="utf-8") as f:
         data = json.load(f)
+
     result = _translate_obj(data, translator)
     ensure_dir_for_file(dst_path)
+
     with open(dst_path, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
-    print(f"[OK] Saved: {dst_path}")
+
+    print(f"[OK][generic_json] {src_path} -> {dst_path}")

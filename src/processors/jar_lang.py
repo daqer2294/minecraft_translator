@@ -1,99 +1,97 @@
 # src/processors/jar_lang.py
 from __future__ import annotations
+import os
 import io
 import json
-import os
 import zipfile
-from typing import Dict, Iterable, Tuple
+from typing import Callable, Optional
 
-from ..utils.helpers import ensure_dir_for_file
 from .. import config
-from . import lang_json
+from ..utils.helpers import ensure_dir_for_file
 
 
-def _iter_jar_lang_entries(jar_path: str) -> Iterable[Tuple[str, str]]:
-    """
-    Даёт пары (modid, lang_path_inside) для всех assets/*/lang/en_us.json внутри jar.
-    Пример: ("botania", "assets/botania/lang/en_us.json")
-    """
-    with zipfile.ZipFile(jar_path, "r") as zf:
-        for name in zf.namelist():
-            # ищем только assets/<modid>/lang/en_us.json
-            if not name.endswith("lang/en_us.json"):
-                continue
-            parts = name.split("/")
+def _translate_lang_dict(data: dict, translator, target_lang: str) -> dict:
+    out = {}
+    for k, v in data.items():
+        if isinstance(v, str):
             try:
-                i = parts.index("assets")
-            except ValueError:
-                continue
-            if i + 2 >= len(parts):
-                continue
-            modid = parts[i + 1]
-            if modid and parts[i + 2] == "lang":
-                yield modid, name
+                out[k] = translator.translate(v, target_lang=target_lang)
+            except Exception:
+                # если переводчик упал на конкретной строке — оставим оригинал
+                out[k] = v
+        else:
+            out[k] = v
+    return out
 
 
-def _read_json_from_zip(zf: zipfile.ZipFile, name: str) -> Dict:
-    with zf.open(name, "r") as fp:
-        data = fp.read()
-    # пробуем utf-8; если не выйдет — latin-1 (редко)
-    try:
-        txt = data.decode("utf-8")
-    except UnicodeDecodeError:
-        txt = data.decode("latin-1")
-    return json.loads(txt)
-
-
-def translate_from_jar(jar_path: str, out_root: str, translator, log=print) -> int:
+def process_jar_lang(
+    jar_path: str,
+    out_root: str,
+    translator,
+    log: Callable[[str], None] = print,
+    write: bool = True,
+    target_lang: Optional[str] = None,
+) -> int:
     """
-    Извлекает assets/*/lang/en_us.json из jar и пишет переведённый
-    ru_ru.json в overlay-путь:
-      <out_root>/overrides/kubejs/assets/<modid>/lang/ru_ru.json
-
-    Возвращает кол-во успешно переведённых модов.
+    Ищет внутри JAR файлы assets/**/lang/en_us.json и
+    пишет переводы в out_root, зеркально меняя en_us.json → ru_ru.json.
+    Возвращает число успешно обработанных файлов.
     """
-    ok = 0
+    target_lang = target_lang or config.TARGET_LANG
     jar_path = os.path.abspath(jar_path)
     out_root = os.path.abspath(out_root)
 
+    processed = 0
+
+    # пример члена архива: assets/modid/lang/en_us.json
+    def _is_en_us_lang(member: str) -> bool:
+        m = member.replace("\\", "/")
+        return m.startswith("assets/") and m.endswith("/lang/en_us.json")
+
     try:
         with zipfile.ZipFile(jar_path, "r") as zf:
-            entries = list(_iter_jar_lang_entries(jar_path))
-            if not entries:
+            members = [m for m in zf.namelist() if _is_en_us_lang(m)]
+            if not members:
                 return 0
-            for modid, lang_name in entries:
+
+            for member in members:
                 try:
-                    data = _read_json_from_zip(zf, lang_name)
-                except Exception as e:
-                    log(f"[jar][skip] {os.path.basename(jar_path)}::{lang_name}: {e}")
+                    raw = zf.read(member)
+                except KeyError:
+                    # внезапно нет — пропустим
                     continue
 
-                # куда положим overlay
-                dst = os.path.join(
-                    out_root, "overrides", "kubejs", "assets", modid, "lang", f"{config.TARGET_LANG}.json"
-                )
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-
-                # используем наш переводчик lang_json на dict
+                # читаем JSON
                 try:
-                    # lang_json умеет переводить файл -> файл.
-                    # здесь у нас dict: сериализуем во временный буфер
-                    src_buf = io.StringIO(json.dumps(data, ensure_ascii=False))
-                    # микс: прогоним по ключам вручную (без записи на диск)
-                    translated = {}
-                    for k, v in data.items():
-                        if isinstance(v, str):
-                            translated[k] = translator.translate(v, target_lang=config.TARGET_LANG)
-                        else:
-                            translated[k] = v
-
-                    with open(dst, "w", encoding="utf-8", newline="\n") as f:
-                        json.dump(translated, f, ensure_ascii=False, indent=2)
-                    log(f"[OK][jar] {os.path.basename(jar_path)} → {dst}")
-                    ok += 1
+                    data = json.loads(raw.decode("utf-8"))
+                    if not isinstance(data, dict):
+                        log(f"[LWRN][jar] {os.path.basename(jar_path)}:{member}: not an object, skip")
+                        continue
                 except Exception as e:
-                    log(f"[ERR][jar] {os.path.basename(jar_path)}::{lang_name}: {e}")
+                    log(f"[LWRN][jar] {os.path.basename(jar_path)}:{member}: bad json: {e}")
+                    continue
+
+                # перевод
+                translated = _translate_lang_dict(data, translator, target_lang)
+
+                # путь вывода: out_root/jar/<jarname>/<assets/.../lang/ru_ru.json>
+                jarname = os.path.splitext(os.path.basename(jar_path))[0]
+                rel_ru = member.replace("/en_us.json", f"/{target_lang}.json")
+                dst_path = os.path.join(out_root, "jar_lang", jarname, rel_ru)
+
+                if write:
+                    ensure_dir_for_file(dst_path)
+                    with open(dst_path, "w", encoding="utf-8", newline="\n") as f:
+                        json.dump(translated, f, ensure_ascii=False, indent=2)
+                    log(f"[OK][jar] {os.path.basename(jar_path)}:{member} → {os.path.relpath(dst_path, out_root)}")
+                else:
+                    log(f"[dry][jar] {os.path.basename(jar_path)}:{member} → {rel_ru}")
+
+                processed += 1
+
     except zipfile.BadZipFile:
-        # не jar
-        return 0
-    return ok
+        log(f"[LWRN][jar] {os.path.basename(jar_path)}: BadZipFile, skip")
+    except Exception as e:
+        log(f"[ERR][jar] {os.path.basename(jar_path)}: {e}")
+
+    return processed
