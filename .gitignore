@@ -8,6 +8,7 @@ dist/
 build/
 __pycache__/
 *.spec
+.idea/
 
 # system
 .DS_Store

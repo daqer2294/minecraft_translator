@@ -1,4 +1,4 @@
-name: Build Windows EXE
+name: Build macOS App
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: macos-latest
 
     steps:
       - name: Checkout
@@ -24,19 +24,19 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build EXE (cmd)
-        shell: cmd
+      - name: Build app with PyInstaller
         run: |
-          pyinstaller ^
-            --noconfirm ^
-            --clean ^
-            --windowed ^
-            --onefile ^
-            --name MinecraftTranslator ^
-            src\gui_main.py
+          pyinstaller \
+            --noconfirm \
+            --clean \
+            --windowed \
+            --onefile \
+            --name MinecraftTranslator \
+            src/gui_main.py
 
+      # Загружаем всю папку dist, там будет бинарь и/или .app
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: MinecraftTranslator-win
-          path: dist/MinecraftTranslator.exe
+          name: MinecraftTranslator-mac
+          path: dist/
