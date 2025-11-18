@@ -202,7 +202,7 @@ MIT — можно использовать в публичных сборках
 
 ## ✨ Автор
 
-**Kirill + ChatGPT-Dev Team**
+**@daqer TG**
 Поддержка: улучшение переводчика, доработка SNBT-парсера, автоматизация GitHub Actions.
 
 ---
@@ -311,3 +311,4 @@ MIT License.
 ✨ добавить статус-бейджи GitHub (build passing, release, platform)
 
 Скажи, и я оформлю.
+
