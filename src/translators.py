@@ -7,7 +7,7 @@ import re
 import time
 import random
 import ssl
-from typing import Optional, List, Tuple, Dict, Callable
+from typing import Optional, List, Tuple, Dict
 
 import urllib.request
 import urllib.error
@@ -25,91 +25,89 @@ RE_NAMESPACE = re.compile(r"[A-Za-z0-9_.-]+:[A-Za-z0-9_/.-]+")
 RE_LATIN = re.compile(r"[A-Za-z]")
 RE_CYR   = re.compile(r"[А-Яа-яЁё]")
 
+
 def _extract_tokens(s: str) -> Tuple[str, ...]:
+    """Достаём плейсхолдеры и namespaced ID из строки."""
     if not s:
         return tuple()
-    toks = []
+    toks: List[str] = []
     toks.extend(RE_PLACEHOLDER.findall(s))
     toks.extend(RE_NAMESPACE.findall(s))
     return tuple(sorted(toks))
 
 
-def _looks_russian(s: str) -> bool:
-    # Строка явно русская и без латиницы → не переводим
+def _looks_russian_only(s: str) -> bool:
+    """Строка уже полностью на кириллице (и без латиницы)."""
     return bool(RE_CYR.search(s)) and not RE_LATIN.search(s)
 
 
-# ---------- резка длинных строк по предложениям ----------
-_SENTENCE_SPLIT_RE = re.compile(r'(?<=[.!?…])\s+')
-
-def _max_chunk_len() -> int:
-    return int(getattr(config, "MAX_CHUNK_LEN", 100))
+def _has_latin(s: str) -> bool:
+    return bool(RE_LATIN.search(s))
 
 
-def _split_text_for_translation(text: str, max_len: int | None = None) -> List[str]:
+def _lang_name_from_mc_code(code: str) -> str:
     """
-    Делит текст на куски <= max_len, стараясь резать по предложениям.
-    Если одно предложение > max_len — режем грубо по символам.
+    Небольшой маппер для человекочитаемого языка в подсказке модели.
+    ru_ru -> Russian, de_de -> German и т.п.
+    Если не знаем — возвращаем сам код.
     """
-    if max_len is None:
-        max_len = _max_chunk_len()
-
-    text = text.strip()
-    if not text or len(text) <= max_len:
-        return [text]
-
-    sentences = _SENTENCE_SPLIT_RE.split(text)
-
-    chunks: List[str] = []
-    cur = ""
-
-    for sent in sentences:
-        sent = sent.strip()
-        if not sent:
-            continue
-
-        candidate = sent if not cur else (cur + " " + sent)
-
-        if len(candidate) <= max_len:
-            cur = candidate
-        else:
-            if cur:
-                chunks.append(cur)
-            if len(sent) <= max_len:
-                cur = sent
-            else:
-                # одно предложение само по себе длинное → режем по max_len
-                for i in range(0, len(sent), max_len):
-                    chunks.append(sent[i:i + max_len])
-                cur = ""
-
-    if cur:
-        chunks.append(cur)
-
-    return chunks
+    m = code.lower()
+    mapping = {
+        "ru_ru": "Russian",
+        "en_us": "English",
+        "de_de": "German",
+        "fr_fr": "French",
+        "es_es": "Spanish",
+        "pt_br": "Brazilian Portuguese",
+        "zh_cn": "Simplified Chinese",
+        "ja_jp": "Japanese",
+    }
+    return mapping.get(m, code)
 
 
-def _lang_name(code: str) -> str:
+def _coerce_json_array(raw: str, expected_len: int) -> List[str]:
     """
-    Возвращает человекочитаемое имя языка по MC-коду (ru_ru -> Russian),
-    если в config есть MC_LANG_NAMES.
+    Пытаемся аккуратно вытащить JSON-массив строк из ответа модели, даже если она
+    умничает и добавляет ```json, текст до/после и т.п.
+    Бросаем исключение, если вменяемо распарсить не удалось.
     """
-    mapping = getattr(config, "MC_LANG_NAMES", None)
-    if isinstance(mapping, dict):
-        return mapping.get(code.lower(), code)
-    return code
+    txt = raw.strip()
+
+    # убираем markdown-ограды
+    if txt.startswith("```"):
+        # типа ```json\n[ ... ]\n```
+        txt = txt.strip("`").strip()
+        # могли остаться префиксы 'json' / 'JSON'
+        if txt.lower().startswith("json"):
+            txt = txt[4:].lstrip()
+
+    # пробуем как есть
+    try:
+        arr = json.loads(txt)
+        if isinstance(arr, list) and (expected_len == 0 or len(arr) == expected_len):
+            return [str(x) for x in arr]
+    except Exception:
+        pass
+
+    # пробуем вырезать первый [...последний]
+    start = txt.find("[")
+    end = txt.rfind("]")
+    if start != -1 and end != -1 and end > start:
+        core = txt[start : end + 1]
+        try:
+            arr = json.loads(core)
+            if isinstance(arr, list) and (expected_len == 0 or len(arr) == expected_len):
+                return [str(x) for x in arr]
+        except Exception:
+            pass
+
+    # если всё плохо — кидаем ошибку
+    raise RuntimeError("Batch output format mismatch")
 
 
 class Translator:
     """
-    Переводчик с кэшем, строгой валидацией, ретраями и batch-потоком.
-    Работает с:
-      - translate(text)
-      - translate_many([texts...])
-    Внутри:
-      - режет длинные строки на куски по предложениям (<= MAX_CHUNK_LEN)
-      - батчит запросы до config.BATCH_SIZE
-      - кэширует все результаты (включая fallback-английский, если strict отклонил перевод)
+    Переводчик с кэшем, строгой валидацией, ретраями и устойчивая batch-системой.
     """
 
     def __init__(
@@ -126,12 +124,16 @@ class Translator:
         self.cache = cache
         self.strict = strict
 
+        # Параметры ретраев и batch-а
         self.max_attempts = int(getattr(config, "RETRY_MAX_ATTEMPTS", 6))
         self.base_delay   = float(getattr(config, "RETRY_BASE_DELAY", 2.0))
         self.max_delay    = float(getattr(config, "RETRY_MAX_DELAY", 30.0))
         self.jitter       = float(getattr(config, "RETRY_JITTER", 0.25))
         self.cache_fallbacks = bool(getattr(config, "CACHE_FALLBACKS", True))
         self.batch_size   = int(getattr(config, "BATCH_SIZE", 50))
+
+        # Порог "сложной" строки — такие лучше гонять одиночками
+        self.complex_len_threshold = int(getattr(config, "COMPLEX_TEXT_THRESHOLD", 220))
 
         self.base_url = getattr(config, "OPENAI_BASE_URL", "https://api.openai.com")
         self._ssl_ctx = ssl.create_default_context(cafile=certifi.where())
@@ -141,94 +143,55 @@ class Translator:
         except Exception:
             pass
 
-    # ---------- публичные методы ----------
-
+    # ---------- одиночная строка ----------
     def translate(self, text: str, target_lang: str = "ru_ru") -> str:
         """
-        Переводит одну строку.
-        Внутри просто вызывает translate_many([text])[0],
-        чтобы вся логика кэша/резки/батчей была в одном месте.
+        Перевод одной строки.
+        - пропускаем уже русские строки
+        - пропускаем строки без латиницы (только цифры/символы/плейсхолдеры)
+        - используем кэш
+        - при ошибке сети / лимита — оставляем исходник
         """
-        if not text or _looks_russian(text):
+        if not text:
             return text
-        return self.translate_many([text], target_lang)[0]
 
+        # уже русский без латиницы → не трогаем
+        if _looks_russian_only(text):
+            return text
+
+        # нет латиницы вообще — тоже не трогаем (например, чистые числа или id без букв)
+        if not _has_latin(text):
+            return text
+
+        cached = self.cache.get(text)
+        if cached is not None:
+            return cached
+
+        src_tokens = _extract_tokens(text)
+        out = self._retry_call(lambda: self._request_single(text, target_lang))
+        if out is None:
+            out = text  # при окончательной неудаче — исходник
+
+        # проверка плейсхолдеров
+        dst_tokens = _extract_tokens(out)
+        if src_tokens != dst_tokens and self.strict:
+            out = text
+
+        # пишем в кэш либо только переводы, либо и фоллбеки (в зависимости от флага)
+        if out != text or self.cache_fallbacks:
+            self.cache.put(text, out)
+            self.cache.save()
+        return out
+
+    # ---------- пачка строк (с дедупом, чанкингом и фоллбеком) ----------
     def translate_many(self, texts: List[str], target_lang: str = "ru_ru") -> List[str]:
         """
-        Переводит список строк:
-          - уже русские/пустые → возвращает как есть;
-          - остальные режет на куски по предложениям;
-          - все куски прогоняет через _translate_flat (кэш + батчи);
-          - собирает куски обратно в длинные строки.
-        """
-        if not texts:
-            return []
-
-        max_len = _max_chunk_len()
-
-        # результирующий список (заполним по ходу)
-        results: List[Optional[str]] = [None] * len(texts)
-
-        # Маппинг: для каждой исходной строки — сколько кусочков
-        chunks_per_text: List[int] = []
-        flat_chunks: List[str] = []
-
-        for i, t in enumerate(texts):
-            if not t or _looks_russian(t):
-                results[i] = t
-                chunks_per_text.append(0)
-                continue
-
-            # сразу попробуем кэш
-            cached = self.cache.get(t)
-            if cached is not None:
-                results[i] = cached
-                chunks_per_text.append(0)
-                continue
-
-            # нужно реально переводить → режем
-            parts = _split_text_for_translation(t, max_len=max_len)
-            chunks_per_text.append(len(parts))
-            flat_chunks.extend(parts)
-
-        # Если нечего переводить — просто вернём уже заполненные значения
-        if not flat_chunks:
-            return [r if r is not None else "" for r in results]
-
-        # Переводим куски (каждый кусок короткий)
-        translated_chunks = self._translate_flat(flat_chunks, target_lang)
-
-        # Собираем куски обратно
-        idx = 0
-        for i, cnt in enumerate(chunks_per_text):
-            if cnt == 0:
-                # либо была русская/пустая строка, либо кэш → уже стоит в results[i]
-                continue
-            piece_list = translated_chunks[idx: idx + cnt]
-            idx += cnt
-            joined = " ".join(piece_list)
-            results[i] = joined
-            # кладём в кэш как целую строку
-            if joined != texts[i] or self.cache_fallbacks:
-                self.cache.put(texts[i], joined)
-
-        # финально сохраняем кэш
-        try:
-            self.cache.save()
-        except Exception:
-            pass
-
-        return [r if r is not None else "" for r in results]
-
-    # ---------- внутренний batch-поток для коротких строк ----------
-
-    def _translate_flat(self, texts: List[str], target_lang: str) -> List[str]:
-        """
-        Переводит список КОРОТКИХ строк (после резки), применяя:
-          - кэш
-          - дедуп
-          - batch-запросы к API
-        Возвращает список той же длины.
+        Переводит список строк той же длины.
+        Алгоритм:
+        - снимаем кэш + отбрасываем уже русские и без-латинские строки;
+        - длинные/сложные строки → сразу одиночками (translate);
+        - остальные — группируем уникальные и шлём батчами;
+        - при проблемах с батчем → фоллбек на одиночный перевод строки.
         """
         n = len(texts)
         results: List[Optional[str]] = [None] * n
@@ -236,73 +199,87 @@ class Translator:
         uniq_map: Dict[str, List[int]] = {}
         src_tokens_ref: Dict[str, Tuple[str, ...]] = {}
 
-        # Сначала снимаем кэш / русские строки
         for i, t in enumerate(texts):
-            if not t or _looks_russian(t):
+            if not t:
                 results[i] = t
                 continue
+
+            # уже русский и без латиницы
+            if _looks_russian_only(t) or not _has_latin(t):
+                results[i] = t
+                continue
+
+            # кэш
             c = self.cache.get(t)
             if c is not None:
                 results[i] = c
                 continue
 
+            # сложные строки — одиночками:
+            # - очень длинные
+            # - с переносами строк
+            # - с SNBT/JSON кусками
+            if (
+                len(t) > self.complex_len_threshold
+                or "\n" in t
+                or "{\"text\"" in t
+                or "§" in t  # цветовые коды MC
+            ):
+                results[i] = self.translate(t, target_lang)
+                continue
+
+            # идёт в batch
             if t not in uniq_map:
                 uniq_map[t] = []
                 src_tokens_ref[t] = _extract_tokens(t)
             uniq_map[t].append(i)
 
+        # если всё уже обработано кэшем/одиночками
         if not uniq_map:
             return [r if r is not None else "" for r in results]
 
         uniq_texts = list(uniq_map.keys())
         outputs_for_uniq: Dict[str, str] = {}
 
-        # Обрабатываем уникальные строки батчами
-        for offset in range(0, len(uniq_texts), self.batch_size):
-            chunk = uniq_texts[offset: offset + self.batch_size]
+        for off in range(0, len(uniq_texts), self.batch_size):
+            chunk = uniq_texts[off : off + self.batch_size]
 
-            # Запрашиваем перевод chunk с ретраями
-            translated_chunk = self._retry_call(lambda: self._request_batch(chunk, target_lang))
+            # попытка батч-запроса с ретраями
+            try:
+                translated_chunk = self._retry_call(lambda: self._request_batch(chunk, target_lang))
+            except Exception as e:
+                print(f"[BatchFatal] {e} → fallback to single for this chunk")
+                translated_chunk = None
 
+            # если батч сломался — одиночками
             if translated_chunk is None or len(translated_chunk) != len(chunk):
-                # что-то пошло не так — fallback поодиночке
-                translated_chunk = []
-                for src in chunk:
-                    single = self._retry_call(lambda: self._request_single(src, target_lang))
-                    if single is None:
-                        single = src
-                    translated_chunk.append(single)
+                translated_chunk = [self.translate(t, target_lang) for t in chunk]
 
-            # Валидация плейсхолдеров + кэш
+            # валидация плейсхолдеров + кэш
             for src, out in zip(chunk, translated_chunk):
                 want = src_tokens_ref[src]
-                got = _extract_tokens(out)
+                got  = _extract_tokens(out)
                 if want != got and self.strict:
                     out = src
-
                 outputs_for_uniq[src] = out
                 if out != src or self.cache_fallbacks:
                     self.cache.put(src, out)
 
-            try:
-                self.cache.save()
-            except Exception:
-                pass
+            # периодически сохраняем кэш
+            self.cache.save()
 
-        # Раскладываем по позициям
+        # разбрасываем по исходным индексам
         for src, positions in uniq_map.items():
             out = outputs_for_uniq.get(src, src)
-            for idx in positions:
-                results[idx] = out
+            for i in positions:
+                results[i] = out
 
         return [r if r is not None else "" for r in results]
 
-    # ---------- ретраи ----------
-
-    def _retry_call(self, func: Callable[[], str | List[str] | None]) -> str | List[str] | None:
+    # ---------- механизм ретраев ----------
+    def _retry_call(self, func):
         attempts = 0
         last_err: Optional[Exception] = None
-
         while attempts < self.max_attempts:
             attempts += 1
             try:
@@ -311,39 +288,33 @@ class Translator:
                 last_err = e
                 msg = str(e).lower()
                 is_rate = ("429" in msg) or ("too many requests" in msg) or ("rate limit" in msg)
-                is_net = isinstance(e, (urllib.error.URLError, TimeoutError))
+                is_net  = isinstance(e, (urllib.error.URLError, TimeoutError))
                 if not (is_rate or is_net):
+                    # логическая/парсинговая ошибка — не мучаемся ретраями
                     break
-
                 delay = min(self.max_delay, self.base_delay * (2 ** (attempts - 1)))
                 delay *= 1.0 + random.uniform(-self.jitter, self.jitter)
-                time.sleep(max(0.0, delay))
-
+                delay = max(0.0, delay)
+                print(f"[Retry] attempt {attempts}/{self.max_attempts}, sleep {delay:.1f}s, err={e}")
+                time.sleep(delay)
         if last_err:
-            print(f"[TranslateError] giving up after {self.max_attempts} attempts: {last_err}")
+            print(f"[TranslateError] giving up after {attempts} attempts: {last_err}")
         return None
 
-    # ---------- HTTP-часть ----------
-
+    # ---------- HTTP: одиночный запрос ----------
     def _request_single(self, text: str, target_lang: str) -> str:
-        """
-        Перевод одной строки через /v1/chat/completions.
-        Используется только как fallback, основной поток — _request_batch.
-        """
         url = f"{self.base_url.rstrip('/')}/v1/chat/completions"
-        lang_name = _lang_name(target_lang)
+        lang_name = _lang_name_from_mc_code(target_lang)
         sys_prompt = (
             "You are a professional localization engine for Minecraft mods and modpacks.\n"
-            f"Translate the following English text into {lang_name} (Minecraft locale: {target_lang}).\n"
-            "Very important rules:\n"
-            " - Preserve ALL Minecraft color/format codes (like §0–§f, §l, §n, §r).\n"
-            " - Preserve ALL placeholders (e.g., %s, %1$s, {count}, {0}, {player}).\n"
-            " - Do NOT translate namespaced IDs like modid:item, minecraft:stone, ftbquests:lootcrate.\n"
-            " - Keep newlines and escape sequences (\\n, \\t, \\\").\n"
-            " - Style: natural, game-like, not overly formal.\n"
-            "Output: ONLY the translated text, nothing else."
+            f"Translate the following text into {lang_name} (Minecraft locale: {target_lang}).\n"
+            "Hard rules:\n"
+            " - Do NOT translate or alter placeholders (e.g., %s, %1$s, {count}, {0}).\n"
+            " - Do NOT translate or alter namespaced IDs like modid:item or text keys.\n"
+            " - Do NOT leave parts of the text in English unless they are proper names or IDs.\n"
+            " - Keep formatting codes (§a, §b, etc.) and JSON fragments intact.\n"
+            "Return ONLY the translated text, without quotes or explanations."
         )
-
         payload = {
             "model": self.model,
             "temperature": 0,
@@ -352,38 +323,36 @@ class Translator:
                 {"role": "user", "content": text},
             ],
         }
-
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
             method="POST",
         )
-
         with urllib.request.urlopen(req, timeout=60, context=self._ssl_ctx) as resp:
             data = json.loads(resp.read().decode("utf-8"))
         return data["choices"][0]["message"]["content"].strip()
 
+    # ---------- HTTP: batch-запрос ----------
     def _request_batch(self, texts: List[str], target_lang: str) -> List[str]:
-        """
-        Переводит массив строк. Модель должна вернуть JSON-массив той же длины.
-        """
         url = f"{self.base_url.rstrip('/')}/v1/chat/completions"
-        lang_name = _lang_name(target_lang)
+        lang_name = _lang_name_from_mc_code(target_lang)
         sys_prompt = (
             "You are a professional localization engine for Minecraft mods and modpacks.\n"
-            f"Translate EACH element of the provided JSON array from English into {lang_name} "
+            f"Translate EACH element of the provided JSON array from English to {lang_name} "
             f"(Minecraft locale: {target_lang}).\n"
             "Strict rules:\n"
-            " - Preserve ALL Minecraft color/format codes (like §0–§f, §l, §n, §r).\n"
-            " - Preserve ALL placeholders (e.g., %s, %1$s, {count}, {0}, {player}).\n"
-            " - Do NOT translate namespaced IDs like modid:item, minecraft:stone, ftbquests:lootcrate.\n"
-            " - Keep array length and order EXACTLY the same.\n"
-            " - Output MUST be a valid JSON array of strings, no extra explanations."
+            " - Do NOT alter placeholders (e.g., %s, %1$s, {count}, {0}).\n"
+            " - Do NOT alter namespaced IDs like modid:item or translation keys.\n"
+            " - Preserve Minecraft formatting codes (e.g., §a, §b) and JSON structure.\n"
+            " - Keep the array length and order EXACTLY the same as input.\n"
+            " - Return ONLY a valid JSON array of strings, without any extra commentary.\n"
+            "If you are unsure about something, keep it as in the original."
         )
-
         user_content = json.dumps(texts, ensure_ascii=False)
-
         payload = {
             "model": self.model,
             "temperature": 0,
@@ -392,27 +361,18 @@ class Translator:
                 {"role": "user", "content": user_content},
             ],
         }
-
         req = urllib.request.Request(
             url,
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
             method="POST",
         )
-
         with urllib.request.urlopen(req, timeout=90, context=self._ssl_ctx) as resp:
             data = json.loads(resp.read().decode("utf-8"))
 
         raw = data["choices"][0]["message"]["content"].strip()
-        # на случай, если модель зачем-то обернёт в ```json ... ```
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.lstrip("`")
-            if raw.lower().startswith("json"):
-                raw = raw[4:]
-            raw = raw.rstrip("`").strip()
-
-        arr = json.loads(raw)
-        if not isinstance(arr, list) or len(arr) != len(texts):
-            raise RuntimeError("Batch output format mismatch")
-        return [str(x) for x in arr]
+        arr = _coerce_json_array(raw, expected_len=len(texts))
+        return arr

@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from zipfile import ZipFile, BadZipFile
 
 from .processors import lang_json, generic_json, ftb_snbt, kubejs_js, jar_lang
+from .processors.snbt_structured import translate_snbt_file_structured
 from .utils.helpers import ensure_dir_for_file
 from . import config
 
@@ -20,7 +21,12 @@ def _is_lang_en_us(path_norm: str) -> bool:
 
 
 def _is_patchouli_json(path_norm: str) -> bool:
-    return "/assets/" in path_norm and "/patchouli_books/" in path_norm and "/en_us/" in path_norm and path_norm.endswith(".json")
+    return (
+        "/assets/" in path_norm
+        and "/patchouli_books/" in path_norm
+        and "/en_us/" in path_norm
+        and path_norm.endswith(".json")
+    )
 
 
 def _is_tips_json(path_norm: str) -> bool:
@@ -61,7 +67,14 @@ def _dst_exists(out_root: str, rel: str) -> bool:
     return False
 
 
-def _process_file(base_input: str, out_root: str, src_path: str, translator, write: bool, log: Callable[[str], None]) -> Tuple[bool, bool, bool]:
+def _process_file(
+    base_input: str,
+    out_root: str,
+    src_path: str,
+    translator,
+    write: bool,
+    log: Callable[[str], None],
+) -> Tuple[bool, bool, bool]:
     """
     Возвращает (matched, ok, skipped)
       matched  — файл относится к поддерживаемым типам
@@ -111,13 +124,20 @@ def _process_file(base_input: str, out_root: str, src_path: str, translator, wri
             else:
                 with open(src_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                acc = []
+
+                acc: List[str] = []
+
                 def collect(n):
-                    if isinstance(n, str): acc.append(n); return
+                    if isinstance(n, str):
+                        acc.append(n)
+                        return
                     if isinstance(n, list):
-                        for i in n: collect(i)
+                        for i in n:
+                            collect(i)
                     elif isinstance(n, dict):
-                        for v in n.values(): collect(v)
+                        for v in n.values():
+                            collect(v)
+
                 collect(data)
                 if acc:
                     translator.translate_many(acc, target_lang=config.TARGET_LANG)
@@ -138,13 +158,20 @@ def _process_file(base_input: str, out_root: str, src_path: str, translator, wri
             else:
                 with open(src_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                acc = []
+
+                acc: List[str] = []
+
                 def collect(n):
-                    if isinstance(n, str): acc.append(n); return
+                    if isinstance(n, str):
+                        acc.append(n)
+                        return
                     if isinstance(n, list):
-                        for i in n: collect(i)
+                        for i in n:
+                            collect(i)
                     elif isinstance(n, dict):
-                        for v in n.values(): collect(v)
+                        for v in n.values():
+                            collect(v)
+
                 collect(data)
                 if acc:
                     translator.translate_many(acc, target_lang=config.TARGET_LANG)
@@ -154,18 +181,25 @@ def _process_file(base_input: str, out_root: str, src_path: str, translator, wri
             log(f"[ERR][tips] {rel}: {e}")
             return True, False, False
 
-    # 4) FTB Quests .snbt
+    # 4) FTB Quests .snbt  — новый структурный перевод + запасной старый
     if _want_ftb_snbt(path_norm):
         dst = os.path.join(out_root, rel)
         try:
             if write:
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
-                with open(src_path, "r", encoding="utf-8") as f:
-                    text = f.read()
-                out = ftb_snbt.translate_ftb_snbt_text(text, translator)
-                with open(dst, "w", encoding="utf-8", newline="\n") as f:
-                    f.write(out)
-                log(f"[OK][snbt] {rel}")
+                try:
+                    # новый путь: SNBT → NBT → рекурсивный перевод → SNBT
+                    translate_snbt_file_structured(src_path, dst, translator)
+                    log(f"[OK][snbt-struct] {rel}")
+                except Exception as e_struct:
+                    # запасной вариант — старый regex-проход, чтобы не потерять файл
+                    log(f"[WARN][snbt-struct] {rel}: {e_struct} → fallback ftb_snbt")
+                    with open(src_path, "r", encoding="utf-8") as f:
+                        text = f.read()
+                    out = ftb_snbt.translate_ftb_snbt_text(text, translator)
+                    with open(dst, "w", encoding="utf-8", newline="\n") as f:
+                        f.write(out)
+                    log(f"[OK][snbt] {rel}")
             else:
                 log(f"[DRY][snbt] {rel}")
             return True, True, False
@@ -213,13 +247,13 @@ def mirror_translate_dir(
     log: Callable[[str], None] = print,
     write: bool = True,
     on_total: Optional[Callable[[int], None]] = None,
-    on_tick: Optional[Callable[[int, int, int, int], None]] = None,  # (done, ok, err, skip) инкременты
+    on_tick: Optional[Callable[[int, int, int, int], None]] = None,  # (done, ok, err, skip)
 ) -> None:
     """
     Параллельный проход по кандидатам с визуализацией прогресса.
     """
     base_input = os.path.abspath(os.path.expanduser(base_input))
-    out_root   = os.path.abspath(out_root)
+    out_root = os.path.abspath(out_root)
 
     # 1) Скан: собираем кандидатов (не все файлы подряд)
     candidates: List[str] = []
@@ -262,7 +296,10 @@ def mirror_translate_dir(
             on_tick(matched_inc, ok_inc, err_inc, skip_inc)
 
     with ThreadPoolExecutor(max_workers=getattr(config, "MAX_WORKERS_FILES", 6)) as ex:
-        futs = [ex.submit(_process_file, base_input, out_root, p, translator, write, log) for p in candidates]
+        futs = [
+            ex.submit(_process_file, base_input, out_root, p, translator, write, log)
+            for p in candidates
+        ]
         for f in as_completed(futs):
             try:
                 m, good, skip = f.result()
@@ -276,10 +313,9 @@ def mirror_translate_dir(
                 else:
                     tick(1, 0, 1, 0)
             else:
-                # теоретически не должно случаться, т.к. мы уже фильтровали
                 tick(1, 0, 0, 0)
 
-    # 4) Последовательно JAR-моды (внутри — собственная логика)
+    # 4) Последовательно JAR-моды
     for jp in jar_ready:
         try:
             jar_lang.process_jar(jp, base_input, out_root, translator, write=write, log=log)
@@ -289,4 +325,7 @@ def mirror_translate_dir(
             tick(1, 0, 1, 0)
 
     status = "DONE (dry-run)" if not write else "DONE"
-    log(f"[{status}] total: {total}, matched: {matched}, ok: {ok}, skip: {skipped}, err: {err}, jars: {len(jar_ready)} / scanned: {len(jar_files)}")
+    log(
+        f"[{status}] total: {total}, matched: {matched}, ok: {ok}, "
+        f"skip: {skipped}, err: {err}, jars: {len(jar_ready)} / scanned: {len(jar_files)}"
+    )
