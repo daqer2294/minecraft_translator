@@ -1,440 +1,384 @@
-# MINECRAFT TRANSLATOR
+# Minecraft Translator
 
-Автоматический переводчик модов, квестов и конфигов Minecraft
-(FTB Quests, Patchouli, SNBT, KubeJS, lang и др.)
+Автоматический перевод модпаков Minecraft — **офлайн, локальной моделью, без ChatGPT и без API-ключей.**
+*Offline Minecraft modpack translation with a local model — no ChatGPT, no API keys.*
 
----
+[![Build](https://github.com/daqer2294/minecraft_translator/actions/workflows/build.yml/badge.svg)](https://github.com/daqer2294/minecraft_translator/actions/workflows/build.yml)
 
-## РУССКАЯ ВЕРСИЯ
+**Язык / Language:** [Русский](#русский) · [English](#english)
 
-1. О ПРОГРАММЕ
-
----
-
-Minecraft Translator – это приложение с графическим интерфейсом (GUI), которое
-помогает автоматически переводить модпаки Minecraft на другие языки
-(например, ru_ru).
-
-Поддерживаются основные форматы:
-
-* lang / en_us.json
-* Patchouli (patchouli_books/.../en_us/*.json)
-* FTB Quests (*.snbt) – структурный разбор через NBT
-* KubeJS (*.js)
-* различные JSON-файлы (tips, книги, подсказки, описания)
-* lang-файлы внутри jar-модов (автоматический поиск en_us.json)
-
-Программа подходит как для клиентских сборок, так и для серверов.
-
-2. ЧТО УМЕЕТ ПРОГРАММА
+<!-- TODO: добавить скриншот -->
+![screenshot](docs/screenshot.png)
 
 ---
 
-* зеркально копирует структуру входной папки в выходную;
-* переводит почти все человекочитаемые строки (названия, описания, подсказки);
-* использует структурный SNBT-парсер: SNBT → NBT → перевод → SNBT;
-* сохраняет цветовое форматирование Minecraft (коды вида §7, §a и т.п.);
-* аккуратно пропускает технические поля (id, команды, координаты, пути ресурсов);
-* старается не ломать файлы: при ошибке оставляет исходный текст;
-* поддерживает Python 3.10+;
-* может собираться в отдельные приложения для Windows и macOS.
+## Русский
 
-3. ВАЖНО: ОГРАНИЧЕНИЯ ПЕРЕВОДА
+### Что это
 
----
+Minecraft Translator — приложение с простым интерфейсом, которое автоматически
+переводит тексты модпаков (названия предметов, описания, квесты, книги,
+подсказки) на нужный язык.
 
-Программа не волшебная, поэтому:
+Главная фишка: перевод может работать **полностью офлайн** — локальной моделью
+прямо на вашем компьютере, без интернета, без ChatGPT и без оплаты за API. При
+желании можно подключить внешний API, чтобы качественнее переводить сложные
+тексты.
 
-* не все строчки переводятся идеально – иногда перевод может быть кривым,
-  особенно в сложных технических описаниях;
-* некоторые строки пропускаются специально (ID, пути ресурсов, типы задач FTB),
-  чтобы не ломать моды и не вызывать краши;
-* если мод использует свой нестандартный формат или генерирует надписи кодом,
-  эти тексты могут не попасть в перевод;
-* для полной локализации клиента всё равно нужны корректные ru_ru.json внутри
-  самих модов (или отдельный ресурс-пак).
+### Ключевые возможности
 
-Идея переводчика – дать максимум автоматизации, но итоговый результат всё равно
-можно и иногда полезно слегка подредактировать руками.
+- 🔌 **Офлайн-перевод локальной моделью** (GGUF через llama.cpp) — без интернета и без ключей.
+- 🧠 **Автоопределение железа** — приложение само смотрит на ваш CPU / GPU / ОЗУ и подбирает подходящую модель: лёгкую для обычных ПК, мощную для сильных машин и Apple Silicon (Metal).
+- 📦 **Понимает форматы модпаков** — `lang/en_us.json` (в том числе внутри `.jar`-модов), FTB Quests (`.snbt`), Patchouli-книги, KubeJS-скрипты, tips и разные JSON-файлы.
+- 🎨 **Бережно относится к разметке Minecraft** — сохраняет цветовые коды (`§a`, `§7`) и плейсхолдеры (`%s`, `{count}`), не трогает технические id и пути ресурсов (`modid:item`).
+- 🔁 **Консистентность** — встроенная память переводов (кэш): одинаковые строки переводятся одинаково в разных файлах и между запусками.
+- 🔀 **Гибридный режим** — массовые простые строки переводит локальная модель, а сложный лор и квесты можно догонять через внешний OpenAI-совместимый API (OpenAI, DeepSeek, Qwen и т.п.).
 
-4. УСТАНОВКА И ЗАПУСК
+### Скачать
 
----
+Готовые сборки — на странице релизов:
 
-1. Установите Python 3.11 (или совместимую версию 3.10+).
+➡️ **[Последний релиз](https://github.com/daqer2294/minecraft_translator/releases/latest)**
 
-   Проверка:
-   python --version
+| Платформа | Файл | Локальный перевод |
+|---|---|---|
+| Windows 10/11 (x64) | `MinecraftTranslator-win-x64.exe` / `.zip` | ✅ есть (CPU) |
+| macOS Apple Silicon (M1–M4) | `MinecraftTranslator-mac-arm64.dmg` / `.zip` | ✅ есть (Metal) |
+| macOS Intel (x86_64) | `MinecraftTranslator-mac-x64-external-only.dmg` / `.zip` | ⚠️ нет — только external / hybrid |
 
-2. Установите зависимости:
+> **Про Intel Mac.** Для macOS на процессорах Intel готовой сборки локального
+> движка нет — под macOS x86_64 отсутствует prebuilt-колесо `llama-cpp-python`
+> (подробности в [`requirements-mac.txt`](requirements-mac.txt)). Поэтому такая
+> сборка помечена `external-only` и работает только в режимах **external** и
+> **hybrid** (через внешний API). Локальный офлайн-перевод на Intel Mac возможен
+> лишь при ручной сборке из исходников (см. «Технические детали»).
 
-   pip install -r requirements.txt
+### Первый запуск: предупреждение безопасности
 
-3. Создайте файл secrets.json в корне проекта:
+Сборки не имеют платной цифровой подписи, поэтому при первом запуске система
+может показать предупреждение. Это нормально и безопасно. Те же шаги доступны
+внутри приложения — кнопка **«❓ Помощь»**.
 
-   {
-   "api_key": "ВАШ_API_КЛЮЧ"
-   }
+**Windows — «Система Windows защитила ваш компьютер»:**
+1. Нажмите **«Подробнее»**.
+2. Нажмите появившуюся кнопку **«Выполнить в любом случае»**.
+3. Дальше приложение открывается обычным двойным щелчком.
 
-4. Запустите GUI (pywebview):
+**macOS — «Не удаётся проверить разработчика» или «Приложение повреждено»:**
+- *Через настройки:* попробуйте открыть приложение → закройте предупреждение →
+  **Системные настройки → Конфиденциальность и безопасность** → пролистайте вниз,
+  найдите строку про MinecraftTranslator → **«Всё равно открыть»**.
+- *Если пишет «повреждено»* — снимите «карантин» в Терминале (подставьте свой путь):
+  ```
+  xattr -cr /Applications/MinecraftTranslator.app
+  ```
 
-   python src/main.py
+<!-- TODO: добавить скриншоты предупреждений (Windows SmartScreen, macOS «Конфиденциальность и безопасность») -->
 
-   Старый Tkinter-интерфейс остаётся как запасной вариант:
-   python -m src.gui_main_legacy
+### Как пользоваться
 
-   Windows: нужен Microsoft Edge WebView2 Runtime (обычно уже установлен в
-   Windows 10/11). На старых системах его можно поставить с сайта Microsoft
-   («Evergreen WebView2 Runtime»). macOS/Linux используют системный WebView
-   (WKWebView / GTK) — доп. установка не требуется.
+1. **Скачайте и откройте** приложение (см. раздел про предупреждение выше).
+2. **Выберите режим.** По умолчанию — **local** (офлайн, ничего вводить не нужно).
+   Для **external** / **hybrid** укажите API-ключ прямо в приложении.
+3. **Первый запуск:** приложение проверит железо и предложит скачать модель.
+   Дождитесь окончания загрузки — это разово (модель весит примерно 1–5 ГБ).
+4. **Укажите входную папку** — папку модпака или его части (`mods`, `config`,
+   `kubejs`, `assets` и т.п.).
+5. **Укажите папку вывода** — куда сложить переведённые файлы (получится готовая
+   зеркальная структура / ресурс-пак).
+6. **Выберите язык** перевода (например, Russian `ru_ru`).
+7. Нажмите **«Старт»** и дождитесь окончания. В логе видно, что переведено, что
+   пропущено и где были предупреждения.
+8. Возьмите результат из папки вывода и подключите к игре (как ресурс-пак или
+   разложив по соответствующим папкам сборки).
 
-4a) ЛОКАЛЬНЫЙ ИНФЕРЕНС (опционально, для режима "local"/"hybrid")
+> 💡 Совет: перед полным прогоном можно включить **«Проверка без записи
+> (dry-run)»** — приложение прогонит перевод, ничего не записывая, чтобы вы
+> оценили объём.
 
----
+### Режимы работы
 
-Перевод внутри приложения без интернета требует llama-cpp-python. Ставится
-отдельно; по умолчанию используются ПРЕБИЛТ-колёса (без Xcode/CMake), версия
-закреплена (0.3.30 — целое колесо; 0.3.32 на индексе оказалось битым):
+| Режим | Что делает | Нужен ключ / интернет |
+|---|---|---|
+| **local** (по умолчанию) | Всё переводит локальная модель на вашем ПК | Нет |
+| **external** | Всё переводит внешний OpenAI-совместимый API | Да |
+| **hybrid** | Простые строки — локально, сложные — через внешний API | Да (для сложных) |
 
-   macOS Apple Silicon (Metal, готовое колесо):
-       pip install -r requirements-mac.txt
+- **local** — приватно и бесплатно; качество зависит от вашего железа и выбранной модели.
+- **external** — качество внешней модели, но нужны ключ, интернет и оплата провайдера.
+- **hybrid** — компромисс: экономит запросы к API, отправляя туда только сложный лор и квесты.
 
-   Windows x64 (CPU, готовое колесо):
-       pip install -r requirements-win.txt
+### Известные ограничения
 
-   Windows NVIDIA CUDA (готовое колесо, подставьте версию CUDA, напр. cu124):
-       pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 "llama-cpp-python==0.3.30"
+- **Intel Mac** — без локального перевода (только external / hybrid), см. раздел «Скачать».
+- **Первый запуск дольше** — один раз нужно скачать модель (~1–5 ГБ в зависимости от тира и вашего железа).
+- **Качество на сложных текстах** — лёгкая модель (для слабых ПК) может хуже справляться с длинным лором и квестами. Для таких текстов лучше подходит тир **standard** или режим **hybrid**.
+- **Перевод не идеален** — часть строк может быть неточной; некоторые технические
+  строки намеренно пропускаются, чтобы не сломать моды и не вызвать краши; тексты,
+  которые мод генерирует кодом, могут не попасть в перевод. Иногда результат
+  полезно слегка поправить руками.
 
-   Intel Mac (x86_64): готового колеса НЕТ — только сборка из исходников
-   (нужны Xcode Command Line Tools):
-       CMAKE_ARGS="-DGGML_METAL=on" pip install --no-binary=llama-cpp-python "llama-cpp-python==0.3.30"
+### Сборка из исходников (для разработчиков)
 
-Это не обязательно: режимы "external" (внешний API) и "server" (запущенный
-рядом llama-server) работают без llama-cpp-python.
+Нужен Python 3.10+.
 
-4b) ПРЕДУПРЕЖДЕНИЕ БЕЗОПАСНОСТИ ПРИ ПЕРВОМ ЗАПУСКЕ (приложение без подписи)
+```
+pip install -r requirements.txt
+python src/main.py
+```
 
----
+Старый Tkinter-интерфейс остаётся как запасной вариант:
+```
+python -m src.gui_main_legacy
+```
 
-Готовые сборки (.exe / .app) не имеют платной цифровой подписи, поэтому при
-первом запуске система может показать предупреждение. Это ожидаемо и безопасно.
-Ту же инструкцию можно открыть внутри приложения — кнопка «❓ Помощь» вверху.
+Готовые сборки собираются в GitHub Actions (Windows и macOS параллельно) —
+[`.github/workflows/build.yml`](.github/workflows/build.yml). Локальная сборка:
 
-Windows — «Система Windows защитила ваш компьютер»:
-   1. Нажмите «Подробнее».
-   2. Нажмите появившуюся кнопку «Выполнить в любом случае».
-   3. Дальше приложение запускается обычным двойным щелчком.
+```
+pyinstaller --noconfirm --clean MinecraftTranslator-win.spec   # Windows
+pyinstaller --noconfirm --clean MinecraftTranslator-mac.spec   # macOS
+```
 
-macOS — «Не удаётся проверить разработчика» или «Приложение повреждено»:
-   Способ 1 (через настройки):
-     1. Попробуйте открыть приложение (предупреждение — закройте).
-     2. Системные настройки → Конфиденциальность и безопасность.
-     3. Внизу найдите строку про MinecraftTranslator и нажмите
-        «Всё равно открыть».
-   Способ 2 (если пишет «повреждено» — снять карантин в Терминале):
-     xattr -cr /Applications/MinecraftTranslator.app
+<details>
+<summary><b>Технические детали (локальный инференс, платформенные колёса, флаги сборки)</b></summary>
 
-   [скриншот Windows SmartScreen — плейсхолдер]
-   [скриншот macOS Конфиденциальность и безопасность — плейсхолдер]
+**GUI-бэкенд:** pywebview. Windows — Microsoft Edge **WebView2 Runtime** (обычно
+уже установлен в Windows 10/11; на старых системах — «Evergreen WebView2
+Runtime»). macOS / Linux используют системный WebView (WKWebView / GTK) —
+дополнительная установка не нужна.
 
-5) РАБОТА ЧЕРЕЗ GUI
+**Локальный инференс (`llama-cpp-python`)** ставится отдельно. По умолчанию —
+готовые prebuilt-колёса (без Xcode/CMake). Версия **закреплена намеренно**:
+`0.3.30` — целое колесо; `0.3.32` на индексе оказалось битым (Bad CRC-32).
 
----
+```
+# macOS Apple Silicon (Metal):
+pip install -r requirements-mac.txt
 
-1. В поле "Входная папка" выберите папку модпака или конфигов
-   (например: config, kubejs, assets и т.п.).
+# Windows x64 (CPU):
+pip install -r requirements-win.txt
 
-2. В поле "Папка вывода" задайте папку, куда сохранять переведённые файлы.
+# Windows NVIDIA CUDA (подставьте версию CUDA, напр. cu124):
+pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 "llama-cpp-python==0.3.30"
 
-3. Выберите язык перевода (например, Russian (ru_ru)).
+# Intel Mac (x86_64) — prebuilt-колеса нет, только сборка из исходников
+# (нужны Xcode Command Line Tools):
+CMAKE_ARGS="-DGGML_METAL=on" pip install --no-binary=llama-cpp-python "llama-cpp-python==0.3.30"
+```
 
-4. Нажмите "Старт" и дождитесь окончания обработки.
+Режимы **external** (внешний API) и **server** (запущенный рядом `llama-server`)
+работают без `llama-cpp-python`.
 
-В логах вы увидите, какие файлы:
+**CI-сборка** использует пиннед prebuilt-колесо с **явной проверкой**
+`import llama_cpp` — job падает, если движок не импортируется (без тихого
+`continue-on-error`). Для Intel Mac колеса нет, поэтому его артефакт помечается
+суффиксом `-external-only`. Сборки **без code signing** — отсюда предупреждение
+при первом запуске.
 
-* переведены успешно;
-* пропущены (уже есть переведённая версия);
-* обработаны с предупреждениями;
-* дали ошибку (такие файлы обычно остаются без изменений).
+**Ключ для external / hybrid** хранится в `secrets.json` в корне проекта в виде
+`{"OPENAI_API_KEY": "ваш_ключ"}` — либо задаётся прямо в приложении. Для режима
+**local** ключ не нужен.
 
-6. ПОДДЕРЖИВАЕМЫЕ ФОРМАТЫ (КРАТКО)
+**Структура проекта (кратко):**
+```
+src/main.py             — точка входа (pywebview GUI)
+src/gui/                — Api-мост + web/ (HTML/CSS/JS фронтенд)
+src/gui_main_legacy.py  — прежний Tkinter GUI (fallback)
+src/llm/                — провайдеры (local llama.cpp / OpenAI-совместимый),
+                          реестр моделей, проба железа, загрузчик моделей
+src/processors/         — обработчики форматов (SNBT, lang, Patchouli, KubeJS…)
+src/mirrorer.py         — обход файлов и выбор нужного процессора
+src/translators.py      — перевод, кэш, роутинг простые/сложные, ретраи
+```
+</details>
 
----
+### Лицензия
 
-* lang/en_us.json              – перевод в ru_ru.json (или другую локаль);
-* Patchouli книги (*.json)     – тексты страниц и заголовков;
-* FTB Quests (*.snbt)          – заголовки, описания, текст в квестах;
-* tips/*.json                  – подсказки и обучающие тексты;
-* KubeJS (*.js)                – строки внутри сценариев;
-* jar-моды                     – автоматически ищется assets/*/lang/en_us.json.
+Лицензия — **MIT**, см. [LICENSE](LICENSE).
 
-Технические ключи (id, типы задач, пути ресурсов вида modid:item_name и т.п.)
-преднамеренно не переводятся.
-
-7. СБОРКА ПРИЛОЖЕНИЯ (КРАТКО)
-
----
-
-Проект содержит единый GitHub Actions workflow с matrix-сборкой на Windows и
-macOS параллельно: .github/workflows/build.yml
-
-Собирается через PyInstaller по платформенным спекам. Локальный инференс —
-пиннед пребилт-колесо llama-cpp-python, с ЯВНОЙ проверкой import (job падает,
-если не работает — никакого тихого continue-on-error):
-* Windows (x64):        MinecraftTranslator-win.spec → .exe (+ .zip)
-                        артефакт MinecraftTranslator-win-x64  (полный, CPU)
-* macOS Apple Silicon:  MinecraftTranslator-mac.spec → .app в .dmg (+ .zip)
-                        артефакт MinecraftTranslator-mac-arm64 (полный, Metal)
-* macOS Intel:          MinecraftTranslator-mac.spec → .app в .dmg (+ .zip)
-                        артефакт MinecraftTranslator-mac-x64-external-only
-                        (пребилт-колеса под macOS x86_64 нет → без локального
-                         инференса; работают external/hybrid/server-режимы)
-
-Локальная сборка:
-   pyinstaller --noconfirm --clean MinecraftTranslator-win.spec   (Windows)
-   pyinstaller --noconfirm --clean MinecraftTranslator-mac.spec   (macOS)
-
-Эти файлы не обязательны для обычного пользователя, но удобны для сборки
-готовых EXE и приложений. Сборки без code signing (см. п.4b про предупреждение).
-
-8. СТРУКТУРА ПРОЕКТА (ОСНОВНОЕ)
-
----
-
-minecraft_translator/
-src/
-main.py                  – точка входа (pywebview GUI)
-gui/                     – UI-слой (мост + фронтенд)
-api.py                 – класс Api (window.pywebview.api)
-web/                   – index.html / style.css / app.js
-gui_main_legacy.py       – прежний Tkinter GUI (fallback)
-processors/
-snbt_structured.py     – структурный SNBT/NBT переводчик
-ftb_snbt.py            – старый / запасной парсер SNBT
-lang_json.py
-generic_json.py
-jar_lang.py
-kubejs_js.py
-dot_lang.py
-utils/
-helpers.py
-config.py
-mirrorer.py              – проход по файлам и выбор нужного процессора
-detectors.py
-translators.py
-requirements.txt
-secrets.json
-README.txt (или README.md)
-
-9. ЛИЦЕНЗИЯ И АВТОРЫ
+Проект создаёт и развивает Kirill.
 
 ---
 
-Лицензия: MIT
+## English
 
-Проект создавался и дорабатывается Kirill при помощи ChatGPT
-(подсказки по коду, логике перевода и обработке форматов Minecraft).
+### What it is
 
----
+Minecraft Translator is a simple GUI app that automatically translates modpack
+text (item names, descriptions, quests, books, tips) into your target language.
 
-## ENGLISH VERSION
+The key point: translation can run **fully offline** — with a local model right
+on your computer, no internet, no ChatGPT, no paid API. You can optionally plug
+in an external API for higher-quality translation of complex text.
 
-1. ABOUT
+### Key features
 
----
+- 🔌 **Offline translation with a local model** (GGUF via llama.cpp) — no internet, no keys.
+- 🧠 **Automatic hardware detection** — the app checks your CPU / GPU / RAM and picks a suitable model: a light one for regular PCs, a stronger one for powerful machines and Apple Silicon (Metal).
+- 📦 **Understands modpack formats** — `lang/en_us.json` (including inside `.jar` mods), FTB Quests (`.snbt`), Patchouli books, KubeJS scripts, tips and various JSON files.
+- 🎨 **Respects Minecraft markup** — keeps color codes (`§a`, `§7`) and placeholders (`%s`, `{count}`), and leaves technical ids and resource paths (`modid:item`) untouched.
+- 🔁 **Consistency** — a built-in translation memory (cache): identical strings translate the same way across files and runs.
+- 🔀 **Hybrid mode** — bulk simple strings go through the local model, while hard lore and quests can be handled by an external OpenAI-compatible API (OpenAI, DeepSeek, Qwen, etc.).
 
-Minecraft Translator is a GUI tool that helps you automatically translate
-Minecraft modpacks to other languages (for example ru_ru).
+### Download
 
-It supports:
+Prebuilt binaries are on the releases page:
 
-* lang / en_us.json
-* Patchouli books
-* FTB Quests (*.snbt) via structured NBT parsing
-* KubeJS scripts (*.js)
-* various JSON files (tips, books, guides)
-* lang files inside mod jars (en_us.json)
+➡️ **[Latest release](https://github.com/daqer2294/minecraft_translator/releases/latest)**
 
-Works for both client and server modpacks.
+| Platform | File | Local translation |
+|---|---|---|
+| Windows 10/11 (x64) | `MinecraftTranslator-win-x64.exe` / `.zip` | ✅ yes (CPU) |
+| macOS Apple Silicon (M1–M4) | `MinecraftTranslator-mac-arm64.dmg` / `.zip` | ✅ yes (Metal) |
+| macOS Intel (x86_64) | `MinecraftTranslator-mac-x64-external-only.dmg` / `.zip` | ⚠️ no — external / hybrid only |
 
-2. FEATURES
+> **About Intel Mac.** There is no prebuilt local engine for Intel macOS — no
+> `llama-cpp-python` prebuilt wheel exists for macOS x86_64 (see
+> [`requirements-mac.txt`](requirements-mac.txt)). That build is therefore marked
+> `external-only` and works only in **external** and **hybrid** modes (via an
+> external API). Local offline translation on Intel Mac is possible only by
+> building from source (see “Technical details”).
 
----
+### First launch: security warning
 
-* mirrors the structure of the input directory;
-* translates most human-readable strings (titles, descriptions, hints);
-* uses a structural SNBT → NBT → translated → SNBT pipeline;
-* preserves Minecraft formatting codes (§a, §7, etc.);
-* skips technical fields (ids, commands, coordinates, resource locations);
-* tries not to break files – on error they are kept as is;
-* supports Python 3.10+;
-* can be built into standalone Windows and macOS apps.
+The builds are not paid-signed, so on first launch the OS may show a warning.
+This is expected and safe. The same steps are available in-app via the
+**“❓ Help”** button.
 
-3. IMPORTANT: LIMITATIONS
+**Windows — “Windows protected your PC”:**
+1. Click **“More info”**.
+2. Click **“Run anyway”**.
+3. Afterwards it launches normally on double-click.
 
----
+**macOS — “cannot verify the developer” or “app is damaged”:**
+- *Via Settings:* try to open the app → dismiss the warning →
+  **System Settings → Privacy & Security** → scroll down, find the
+  MinecraftTranslator line → **“Open Anyway”**.
+- *If it says “damaged”* — remove quarantine in Terminal (use your real path):
+  ```
+  xattr -cr /Applications/MinecraftTranslator.app
+  ```
 
-The translator is powerful but not perfect:
+<!-- TODO: add screenshots (Windows SmartScreen, macOS Privacy & Security) -->
 
-* not every line is translated ideally – some texts may be rough or awkward;
-* some fields are intentionally skipped (IDs, resource paths, task types) to
-  avoid crashes and broken mods;
-* mods with fully custom formats or dynamically generated text may not be
-  translated at all;
-* for a fully localized client you still may need proper ru_ru.json files
-  inside the mods or a custom resource pack.
+### How to use
 
-The goal is to automate as much as possible, but manual polishing of some
-translations is still allowed and sometimes recommended.
+1. **Download and open** the app (see the warning section above).
+2. **Choose a mode.** Default is **local** (offline, nothing to enter). For
+   **external** / **hybrid**, set your API key in the app.
+3. **First launch:** the app checks your hardware and offers to download a model.
+   Wait for it to finish — this is a one-time step (the model is roughly 1–5 GB).
+4. **Pick the input folder** — your modpack or a part of it (`mods`, `config`,
+   `kubejs`, `assets`, etc.).
+5. **Pick the output folder** — where translated files go (you get a mirrored
+   structure / resource pack).
+6. **Choose the target language** (for example Russian `ru_ru`).
+7. Press **“Start”** and wait. The log shows what was translated, skipped, or had
+   warnings.
+8. Take the result from the output folder and add it to the game (as a resource
+   pack or by placing files into the matching modpack folders).
 
-4. INSTALL AND RUN (LOCAL)
+> 💡 Tip: before a full run you can enable **“dry-run”** — the app runs the
+> translation without writing files so you can gauge the volume.
 
----
+### Modes
 
-1. Install Python 3.11 (or 3.10+).
+| Mode | What it does | Key / internet needed |
+|---|---|---|
+| **local** (default) | A local model on your PC translates everything | No |
+| **external** | An external OpenAI-compatible API translates everything | Yes |
+| **hybrid** | Simple strings locally, hard ones via the external API | Yes (for hard ones) |
 
-   Check:
-   python --version
+- **local** — private and free; quality depends on your hardware and the model.
+- **external** — external-model quality, but needs a key, internet and provider billing.
+- **hybrid** — a compromise: saves API calls by sending only hard lore and quests.
 
-2. Install dependencies:
+### Known limitations
 
-   pip install -r requirements.txt
+- **Intel Mac** — no local translation (external / hybrid only), see “Download”.
+- **Slower first launch** — you download a model once (~1–5 GB depending on tier and hardware).
+- **Quality on complex text** — the light model (for weaker PCs) can struggle with long lore and quests; for those, the **standard** tier or **hybrid** mode works better.
+- **Not perfect** — some lines may be rough; some technical strings are skipped on
+  purpose to avoid breaking mods; text a mod generates in code may not be picked
+  up. Manual polishing of some translations is sometimes worth it.
 
-3. Create secrets.json in the project root:
+### Building from source (for developers)
 
-   {
-   "api_key": "YOUR_API_KEY"
-   }
+Requires Python 3.10+.
 
-4. Run GUI (pywebview):
+```
+pip install -r requirements.txt
+python src/main.py
+```
 
-   python src/main.py
+The legacy Tkinter UI remains as a fallback:
+```
+python -m src.gui_main_legacy
+```
 
-   Legacy Tkinter UI is kept as a fallback:
-   python -m src.gui_main_legacy
+Prebuilt binaries are produced by GitHub Actions (Windows and macOS in parallel) —
+[`.github/workflows/build.yml`](.github/workflows/build.yml). Local build:
 
-   Windows requires the Microsoft Edge WebView2 Runtime (preinstalled on
-   Windows 10/11; on older systems install the "Evergreen WebView2 Runtime").
-   macOS/Linux use the system WebView (WKWebView / GTK).
+```
+pyinstaller --noconfirm --clean MinecraftTranslator-win.spec   # Windows
+pyinstaller --noconfirm --clean MinecraftTranslator-mac.spec   # macOS
+```
 
-4a) LOCAL INFERENCE (optional, for "local"/"hybrid" modes)
+<details>
+<summary><b>Technical details (local inference, platform wheels, build flags)</b></summary>
 
----
+**GUI backend:** pywebview. Windows uses the Microsoft Edge **WebView2 Runtime**
+(usually preinstalled on Windows 10/11; on older systems install the “Evergreen
+WebView2 Runtime”). macOS / Linux use the system WebView (WKWebView / GTK) — no
+extra install.
 
-Offline in-app translation needs llama-cpp-python, installed separately. By
-default it uses PREBUILT wheels (no Xcode/CMake); the version is pinned (0.3.30
-is intact; 0.3.32 on the index was corrupted):
+**Local inference (`llama-cpp-python`)** is installed separately. By default it
+uses prebuilt wheels (no Xcode/CMake). The version is **pinned on purpose**:
+`0.3.30` is intact; `0.3.32` on the index was corrupted (Bad CRC-32).
 
-   macOS Apple Silicon (Metal, prebuilt wheel):
-       pip install -r requirements-mac.txt
+```
+# macOS Apple Silicon (Metal):
+pip install -r requirements-mac.txt
 
-   Windows x64 (CPU, prebuilt wheel):
-       pip install -r requirements-win.txt
+# Windows x64 (CPU):
+pip install -r requirements-win.txt
 
-   Windows NVIDIA CUDA (prebuilt wheel, set your CUDA version, e.g. cu124):
-       pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 "llama-cpp-python==0.3.30"
+# Windows NVIDIA CUDA (set your CUDA version, e.g. cu124):
+pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 "llama-cpp-python==0.3.30"
 
-   Intel Mac (x86_64): no prebuilt wheel exists — build from source
-   (needs Xcode Command Line Tools):
-       CMAKE_ARGS="-DGGML_METAL=on" pip install --no-binary=llama-cpp-python "llama-cpp-python==0.3.30"
+# Intel Mac (x86_64) — no prebuilt wheel, build from source
+# (needs Xcode Command Line Tools):
+CMAKE_ARGS="-DGGML_METAL=on" pip install --no-binary=llama-cpp-python "llama-cpp-python==0.3.30"
+```
 
-Optional: "external" (remote API) and "server" (a running llama-server) modes
-work without llama-cpp-python.
+The **external** (remote API) and **server** (a running `llama-server`) modes
+work without `llama-cpp-python`.
 
-4b) FIRST-RUN SECURITY WARNING (the app is not code-signed)
+**CI build** installs the pinned prebuilt wheel and does an **explicit**
+`import llama_cpp` check — the job fails if the engine can’t import (no silent
+`continue-on-error`). Intel Mac has no wheel, so its artifact is suffixed
+`-external-only`. Builds are **not code-signed**, hence the first-run warning.
 
----
+**Key for external / hybrid** lives in `secrets.json` at the project root as
+`{"OPENAI_API_KEY": "your_key"}`, or is set directly in the app. The **local**
+mode needs no key.
 
-Prebuilt binaries (.exe / .app) are not paid-signed, so the OS may warn you on
-first launch. This is expected and safe. The same steps are available in-app via
-the "❓ Help" button.
+**Project layout (short):**
+```
+src/main.py             — entry point (pywebview GUI)
+src/gui/                — Api bridge + web/ (HTML/CSS/JS frontend)
+src/gui_main_legacy.py  — legacy Tkinter GUI (fallback)
+src/llm/                — providers (local llama.cpp / OpenAI-compatible),
+                          model registry, hardware probe, model downloader
+src/processors/         — format handlers (SNBT, lang, Patchouli, KubeJS…)
+src/mirrorer.py         — file walk and processor selection
+src/translators.py      — translation, cache, simple/complex routing, retries
+```
+</details>
 
-Windows — "Windows protected your PC":
-   1. Click "More info".
-   2. Click "Run anyway".
-   3. Afterwards it launches normally on double-click.
+### License
 
-macOS — "cannot verify the developer" or "app is damaged":
-   Option 1 (Settings):
-     1. Try to open the app (dismiss the warning).
-     2. System Settings → Privacy & Security.
-     3. Scroll down, find the MinecraftTranslator line, click "Open Anyway".
-   Option 2 (remove quarantine in Terminal, if it says "damaged"):
-     xattr -cr /Applications/MinecraftTranslator.app
+License — **MIT**, see [LICENSE](LICENSE).
 
-   [Windows SmartScreen screenshot — placeholder]
-   [macOS Privacy & Security screenshot — placeholder]
-
-5) USING THE GUI
-
----
-
-1. Select "Input folder" with your configs or modpack (config, kubejs, etc.).
-2. Select "Output folder" where translated files will be written.
-3. Choose target language (for example Russian (ru_ru)).
-4. Press "Start" and wait until processing finishes.
-
-The log panel will show which files were:
-
-* translated successfully,
-* skipped (already localized),
-* processed with warnings,
-* failed (kept untouched).
-
-6. SUPPORTED FORMATS (SHORT)
-
----
-
-* lang/en_us.json           – translated into ru_ru.json (or other locale);
-* Patchouli JSON            – book pages and titles;
-* FTB Quests SNBT           – quest titles, descriptions, text;
-* tips/*.json               – tips and guide texts;
-* KubeJS scripts            – strings in JS scripts;
-* jar mods                  – automatically finds assets/*/lang/en_us.json.
-
-Technical keys and resource locations (modid:item, namespace:path, etc.)
-are intentionally not translated.
-
-7. BUILDING APPS (SHORT)
-
----
-
-Single matrix workflow builds Windows + macOS in parallel:
-.github/workflows/build.yml
-
-Built via PyInstaller from platform specs. Local inference uses a pinned
-prebuilt llama-cpp-python wheel with an EXPLICIT import check (the job fails if
-it does not work — no silent continue-on-error):
-* Windows (x64):       MinecraftTranslator-win.spec → .exe (+ .zip)
-                       artifact MinecraftTranslator-win-x64  (full, CPU)
-* macOS Apple Silicon: MinecraftTranslator-mac.spec → .app in .dmg (+ .zip)
-                       artifact MinecraftTranslator-mac-arm64 (full, Metal)
-* macOS Intel:         MinecraftTranslator-mac.spec → .app in .dmg (+ .zip)
-                       artifact MinecraftTranslator-mac-x64-external-only
-                       (no macOS x86_64 prebuilt wheel → no local inference;
-                        external/hybrid/server modes work)
-
-Builds are not code-signed (see 4b about the first-run warning).
-
-8. PROJECT STRUCTURE (MAIN PARTS)
-
----
-
-minecraft_translator/
-src/main.py                 (pywebview entry point)
-src/gui/api.py + src/gui/web/  (bridge + HTML/CSS/JS frontend)
-src/gui_main_legacy.py      (legacy Tkinter GUI, fallback)
-src/processors/...
-src/utils/...
-src/mirrorer.py
-src/detectors.py
-src/translators.py
-requirements.txt
-secrets.json
-
-9. LICENSE
-
----
-
-MIT License.
-Free to use in your modpacks, translation projects and servers.
+Created and maintained by Kirill.
