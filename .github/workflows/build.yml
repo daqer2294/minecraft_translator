@@ -1,0 +1,107 @@
+name: Build (Windows + macOS)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.variant }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Полные сборки (с рабочим локальным инференсом из пребилт-колеса):
+          - os: windows-latest   # x64, CPU-колесо
+            platform: win
+            arch: x64
+            spec: MinecraftTranslator-win.spec
+            reqfile: requirements-win.txt
+            variant: ""
+          - os: macos-14         # Apple Silicon, Metal-колесо
+            platform: mac
+            arch: arm64
+            spec: MinecraftTranslator-mac.spec
+            reqfile: requirements-mac.txt
+            variant: ""
+          # Intel Mac: пребилт-колеса llama-cpp-python под macOS x86_64 НЕТ, а
+          # компиляция из исходников в CI ненадёжна → честно помечаем сборку
+          # external-only (локальный in-process инференс в неё не входит).
+          - os: macos-13
+            platform: mac
+            arch: x64
+            spec: MinecraftTranslator-mac.spec
+            reqfile: ""
+            variant: "-external-only"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install base deps + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      # Локальный инференс — ПИННЕД ПРЕБИЛТ-КОЛЕСО (никакой компиляции из
+      # исходников; --only-binary заставит упасть, если колеса нет, вместо
+      # тихого сползания в долгую и хрупкую сборку sdist).
+      - name: Install local inference (pinned prebuilt wheel)
+        if: matrix.reqfile != ''
+        run: pip install --only-binary=llama-cpp-python -r ${{ matrix.reqfile }}
+
+      # ЯВНАЯ проверка: без рабочего import llama_cpp job падает с понятным
+      # сообщением — чтобы никогда не выпустить «полную» сборку, где local не
+      # работает. (Заменяет прежний continue-on-error.)
+      - name: Verify local inference import (fail job if broken)
+        if: matrix.reqfile != ''
+        shell: python
+        run: |
+          import sys
+          try:
+              import llama_cpp
+              print("OK llama_cpp", llama_cpp.__version__)
+          except Exception as e:
+              print("::error::Local inference (llama_cpp) failed to import — "
+                    "refusing to ship a 'full' build without working local "
+                    "inference. Fix the wheel/pin or mark this variant "
+                    "external-only. Details:", e)
+              sys.exit(1)
+
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm --clean ${{ matrix.spec }}
+
+      # ---- Packaging ----
+      - name: (Windows) package exe + zip
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $base = "MinecraftTranslator-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.variant }}"
+          Copy-Item dist/MinecraftTranslator.exe "$base.exe"
+          Compress-Archive -Path "$base.exe" -DestinationPath "$base.zip" -Force
+
+      - name: (macOS) package .app into .dmg + .zip
+        if: runner.os == 'macOS'
+        run: |
+          APP="dist/MinecraftTranslator.app"
+          BASE="MinecraftTranslator-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.variant }}"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$BASE.zip"
+          hdiutil create -volname "MinecraftTranslator" -srcfolder "$APP" -ov -format UDZO "$BASE.dmg"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MinecraftTranslator-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.variant }}
+          if-no-files-found: ignore
+          path: |
+            MinecraftTranslator-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.variant }}.exe
+            MinecraftTranslator-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.variant }}.zip
+            MinecraftTranslator-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.variant }}.dmg

@@ -166,4 +166,10 @@ def build_resource_pack(base_input: str, out_root: str, translator) -> None:
     processed = _scan_tips_in_assets(overrides_kube_assets, out_root, translator, processed)
     processed = _scan_lang_in_assets(overrides_kube_assets, out_root, translator, processed)
 
+    # гарантируем финальную запись дебаунс-кэша (R-6)
+    try:
+        translator.flush()
+    except Exception:
+        pass
+
     print(f"[DONE] Переведено источников: {processed}")

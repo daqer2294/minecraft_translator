@@ -7,7 +7,11 @@ translations_cache.json
 dist/
 build/
 __pycache__/
+# PyInstaller авто-генерируемые спеки игнорируем, но НАШИ платформенные спеки
+# нужны CI-сборке (build.yml) — версионируем их явно.
 *.spec
+!MinecraftTranslator-win.spec
+!MinecraftTranslator-mac.spec
 .idea/
 
 # system

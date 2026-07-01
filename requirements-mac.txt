@@ -1,0 +1,18 @@
+# Локальный in-process инференс на macOS (Apple Silicon, Metal).
+#
+# По умолчанию ставится ПРЕБИЛТ-колесо с Metal — НЕ требует Xcode/CMake:
+#   pip install -r requirements-mac.txt
+#
+# Версия ЗАКРЕПЛЕНА намеренно: колесо 0.3.32 на wheel-индексе оказалось битым
+# (Bad CRC-32 в lib/cmake/ggml/ggml-config.cmake), 0.3.30 — проверенно целое.
+# Прежде чем поднимать версию — проверьте целостность колеса (zipfile.testzip()).
+#
+# ВАЖНО: пребилт Metal-колесо есть только для Apple Silicon (arm64).
+# Для Intel Mac (x86_64) готового колеса НЕТ — собирайте из исходников
+# (нужны Xcode Command Line Tools):
+#   CMAKE_ARGS="-DGGML_METAL=on" pip install --no-binary=llama-cpp-python "llama-cpp-python==0.3.30"
+#
+# Не требуется для external/hybrid и server-mode (llama-server).
+-r requirements.txt
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/metal
+llama-cpp-python==0.3.30
