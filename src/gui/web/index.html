@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Minecraft Translator</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">⛏️</span>
+        <div>
+          <h1>Minecraft Translator</h1>
+          <p class="sub">Автоперевод модпаков · локально или через API</p>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="btn ghost small" id="helpBtn" title="Помощь при предупреждении безопасности">❓ Помощь</button>
+        <div class="phase" id="phasePill">idle</div>
+      </div>
+    </header>
+
+    <main class="grid">
+      <!-- Папки -->
+      <section class="card">
+        <h2>Папки</h2>
+        <label class="field">
+          <span>Входная папка (модпак)</span>
+          <div class="row">
+            <input id="inputPath" type="text" placeholder="выберите папку модпака…" />
+            <button class="btn ghost" data-pick="input">Выбрать…</button>
+          </div>
+        </label>
+        <label class="field">
+          <span>Папка вывода</span>
+          <div class="row">
+            <input id="outputPath" type="text" />
+            <button class="btn ghost" data-pick="output">Выбрать…</button>
+          </div>
+        </label>
+        <div class="row between">
+          <label class="check">
+            <input type="checkbox" id="dryRun" checked />
+            <span>Проверка без записи (dry-run)</span>
+          </label>
+          <label class="field inline">
+            <span>Язык</span>
+            <select id="langSel"></select>
+          </label>
+        </div>
+      </section>
+
+      <!-- Режим -->
+      <section class="card">
+        <h2>Режим перевода</h2>
+        <div class="modes" id="modes">
+          <button class="mode" data-mode="local">
+            <span class="mode-icon">💻</span>
+            <b>Локально</b>
+            <small>GGUF-модель на вашем железе. Ключ не нужен.</small>
+          </button>
+          <button class="mode" data-mode="external">
+            <span class="mode-icon">☁️</span>
+            <b>Внешний API</b>
+            <small>OpenAI-совместимый провайдер. Нужен ключ.</small>
+          </button>
+          <button class="mode" data-mode="hybrid">
+            <span class="mode-icon">🔀</span>
+            <b>Гибрид</b>
+            <small>Простое — локально, сложное — во внешний API.</small>
+          </button>
+        </div>
+        <div class="field" id="keyBlock" hidden>
+          <span>Внешний API-ключ</span>
+          <div class="row">
+            <input id="apiKey" type="password" placeholder="sk-…" />
+            <button class="btn ghost" id="saveKey">Сохранить</button>
+          </div>
+          <small class="hint" id="keyHint"></small>
+        </div>
+      </section>
+
+      <!-- Железо / модель -->
+      <section class="card">
+        <h2>Локальная модель / железо</h2>
+        <div class="hw" id="hwSummary">проба ещё не выполнялась</div>
+        <div class="row between wrap">
+          <label class="field inline">
+            <span>Тир</span>
+            <select id="tierSel">
+              <option value="light">light</option>
+              <option value="standard">standard</option>
+            </select>
+          </label>
+          <div class="row">
+            <button class="btn ghost" id="rescanBtn">Пересканировать железо</button>
+          </div>
+        </div>
+        <div class="model-status" id="modelStatus"></div>
+      </section>
+
+      <!-- Статус -->
+      <section class="card status-card">
+        <h2>Статус</h2>
+        <div class="stats">
+          <div class="stat"><b id="stTotal">0</b><span>всего</span></div>
+          <div class="stat"><b id="stDone">0</b><span>обработано</span></div>
+          <div class="stat ok"><b id="stOk">0</b><span>ок</span></div>
+          <div class="stat skip"><b id="stSkip">0</b><span>skip</span></div>
+          <div class="stat err"><b id="stErr">0</b><span>ошибок</span></div>
+          <div class="stat"><b id="stSpeed">—</b><span>скорость</span></div>
+          <div class="stat"><b id="stEta">—</b><span>ETA</span></div>
+        </div>
+        <div class="progress"><div class="bar" id="progBar"></div></div>
+        <div class="controls">
+          <button class="btn primary" id="startBtn">▶ Старт</button>
+          <button class="btn" id="pauseBtn" disabled>⏸ Пауза</button>
+          <button class="btn" id="resumeBtn" hidden>▶ Продолжить</button>
+          <button class="btn danger" id="stopBtn" disabled>⏹ Стоп</button>
+        </div>
+      </section>
+
+      <!-- Лог -->
+      <section class="card log-card">
+        <h2>Лог</h2>
+        <pre id="log" class="log"></pre>
+      </section>
+    </main>
+  </div>
+
+  <!-- Модалка помощи: предупреждение безопасности (без подписи) -->
+  <div class="overlay" id="helpOverlay" hidden>
+    <div class="modal help">
+      <h3>Приложение не подписано — это нормально</h3>
+      <p class="muted">
+        Это бесплатное приложение с открытым исходным кодом. Оно не куплено у
+        Apple/Microsoft для «цифровой подписи», поэтому при первом запуске
+        система может показать предупреждение. Это не вирус — просто система
+        осторожничает. Ниже — что нажать.
+      </p>
+
+      <div class="help-os">
+        <h4>🪟 Windows: «Система Windows защитила ваш компьютер»</h4>
+        <ol>
+          <li>Нажмите <b>«Подробнее»</b> в окне предупреждения.</li>
+          <li>Внизу появится кнопка <b>«Выполнить в любом случае»</b> — нажмите её.</li>
+          <li>Приложение запустится. В следующий раз предупреждения не будет.</li>
+        </ol>
+        <div class="shot">[скриншот: окно SmartScreen → «Подробнее» → «Выполнить в любом случае»]</div>
+      </div>
+
+      <div class="help-os">
+        <h4>🍎 macOS: «Не удаётся проверить разработчика» / «Приложение повреждено»</h4>
+        <p class="muted">Способ 1 — через настройки (проще):</p>
+        <ol>
+          <li>Попробуйте открыть приложение обычным двойным щелчком (появится предупреждение — закройте его).</li>
+          <li>Откройте <b>Системные настройки → Конфиденциальность и безопасность</b>.</li>
+          <li>Пролистайте вниз — там будет строка про «MinecraftTranslator» и кнопка
+              <b>«Всё равно открыть»</b>. Нажмите её и подтвердите.</li>
+        </ol>
+        <p class="muted">Способ 2 — если пишет «повреждено» (снять «карантин»):</p>
+        <ol>
+          <li>Откройте приложение <b>Терминал</b>.</li>
+          <li>Введите команду (замените путь на реальный) и нажмите Enter:</li>
+        </ol>
+        <pre class="cmd">xattr -cr /Applications/MinecraftTranslator.app</pre>
+        <div class="shot">[скриншот: Конфиденциальность и безопасность → «Всё равно открыть»]</div>
+      </div>
+
+      <div class="row" style="justify-content:flex-end; margin-top:8px;">
+        <button class="btn primary" id="helpClose">Понятно</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Модалка скачивания -->
+  <div class="overlay" id="dlOverlay" hidden>
+    <div class="modal">
+      <h3 id="dlTitle">Скачивание модели</h3>
+      <p id="dlDesc" class="muted"></p>
+      <div class="progress"><div class="bar" id="dlBar"></div></div>
+      <div class="row between">
+        <span id="dlBytes" class="muted">—</span>
+        <div class="row">
+          <button class="btn ghost" id="dlCancel">Позже</button>
+          <button class="btn primary" id="dlStart">Скачать</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

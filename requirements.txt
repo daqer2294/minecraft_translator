@@ -15,3 +15,22 @@ tqdm==4.67.1
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 ftb-snbt-lib>=0.1.0
+# GUI: pywebview (нативное окно + HTML/CSS/JS фронтенд)
+pywebview>=5.0
+# Платформенные backend'ы pywebview (environment markers — pip ставит только
+# нужное для текущей ОС):
+#   macOS  → WKWebView через pyobjc (нужен и для нативного create_file_dialog)
+pyobjc-core>=10.0 ; sys_platform == "darwin"
+pyobjc-framework-Cocoa>=10.0 ; sys_platform == "darwin"
+pyobjc-framework-WebKit>=10.0 ; sys_platform == "darwin"
+pyobjc-framework-Quartz>=10.0 ; sys_platform == "darwin"
+#   Windows → WebView2 (EdgeChromium) через pythonnet
+pythonnet>=3.0.3 ; sys_platform == "win32"
+# Автовыбор железа и скачивание моделей
+psutil>=5.9.0
+huggingface_hub>=0.23.0
+# Локальный in-process инференс GGUF — ОПЦИОНАЛЬНО и платформо-зависимо
+# (флаги сборки нельзя выразить маркерами), поэтому вынесен отдельно:
+#   macOS (Metal):   requirements-mac.txt
+#   Windows (CPU/CUDA): requirements-win.txt
+# Не требуется для external-/hybrid-режима и для server-mode (llama-server).

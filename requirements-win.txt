@@ -1,0 +1,20 @@
+# Локальный in-process инференс на Windows.
+#
+# По умолчанию — ПРЕБИЛТ CPU-колесо, НЕ требует компилятора/CMake:
+#   pip install -r requirements-win.txt
+#
+# Версия ЗАКРЕПЛЕНА намеренно: колесо 0.3.32 на wheel-индексе битое (Bad CRC-32),
+# 0.3.30 — проверенно целое. Перед апгрейдом проверяйте целостность колеса.
+#
+# NVIDIA CUDA — отдельный wheel-индекс (подставьте версию CUDA, напр. cu124):
+#   pip install --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124 "llama-cpp-python==0.3.30"
+# либо сборка из исходников (нужен CUDA Toolkit):
+#   set CMAKE_ARGS=-DGGML_CUDA=on
+#   pip install --no-binary=llama-cpp-python "llama-cpp-python==0.3.30"
+#
+# hardware_probe.py определяет NVIDIA (nvidia-smi), local_llamacpp.py выставит
+# n_gpu_layers=-1 — но реальное ускорение будет только у CUDA-сборки.
+# Не требуется для external/hybrid и server-mode (llama-server).
+-r requirements.txt
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+llama-cpp-python==0.3.30

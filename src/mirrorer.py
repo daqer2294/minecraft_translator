@@ -316,13 +316,29 @@ def mirror_translate_dir(
                 tick(1, 0, 0, 0)
 
     # 4) Последовательно JAR-моды
+    # R-1: раньше здесь вызывался несуществующий jar_lang.process_jar(...) с
+    #      неправильной сигнатурой → перевод lang внутри .jar всегда падал в
+    #      except. Корректная функция — process_jar_lang(jar_path, out_root, ...).
     for jp in jar_ready:
         try:
-            jar_lang.process_jar(jp, base_input, out_root, translator, write=write, log=log)
+            jar_lang.process_jar_lang(
+                jp,
+                out_root,
+                translator,
+                log=log,
+                write=write,
+                target_lang=config.TARGET_LANG,
+            )
             tick(1, 1, 0, 0)
         except Exception as e:
             log(f"[ERR][jar] {os.path.basename(jp)}: {e}")
             tick(1, 0, 1, 0)
+
+    # R-6: гарантируем финальную запись дебаунс-кэша
+    try:
+        translator.flush()
+    except Exception:
+        pass
 
     status = "DONE (dry-run)" if not write else "DONE"
     log(
