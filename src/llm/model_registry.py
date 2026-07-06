@@ -32,11 +32,15 @@ class ModelSpec:
     id: str                 # стабильный идентификатор (ключ в конфиге/кэше)
     hf_repo: str            # HuggingFace repo_id
     hf_filename: str        # конкретный GGUF-файл (quant)
-    size_mb: int            # приблизительный размер файла, МБ
+    size_mb: int            # размер файла в МиБ (для UI и оценки места)
     tier: str               # "light" | "standard" | "complex"
     min_ram_mb: int         # рекомендуемый минимум ОЗУ/VRAM для запуска
     context_length: int     # max context модели (токены)
     label: str = ""         # человекочитаемое имя для GUI
+    # ТОЧНЫЙ размер файла (HTTP Content-Length с HF). Используется в
+    # is_downloaded() для надёжной проверки завершённости (точное совпадение,
+    # а не грубый порог по size_mb). 0 → фоллбек на size_mb.
+    size_bytes: int = 0
 
     @property
     def display(self) -> str:
@@ -49,7 +53,8 @@ REGISTRY: List[ModelSpec] = [
         id="qwen2.5-1.5b-instruct-q4_k_m",
         hf_repo="bartowski/Qwen2.5-1.5B-Instruct-GGUF",
         hf_filename="Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
-        size_mb=1120,
+        size_mb=941,               # реально 940.4 МиБ
+        size_bytes=986048768,      # точный Content-Length с HF
         tier="light",
         min_ram_mb=3000,
         context_length=32768,
@@ -59,7 +64,8 @@ REGISTRY: List[ModelSpec] = [
         id="qwen2.5-3b-instruct-q4_k_m",
         hf_repo="bartowski/Qwen2.5-3B-Instruct-GGUF",
         hf_filename="Qwen2.5-3B-Instruct-Q4_K_M.gguf",
-        size_mb=2100,
+        size_mb=1841,              # реально 1840.5 МиБ
+        size_bytes=1929903264,     # точный Content-Length с HF
         tier="light",
         min_ram_mb=4000,
         context_length=32768,
@@ -70,7 +76,8 @@ REGISTRY: List[ModelSpec] = [
         id="qwen2.5-7b-instruct-q4_k_m",
         hf_repo="bartowski/Qwen2.5-7B-Instruct-GGUF",
         hf_filename="Qwen2.5-7B-Instruct-Q4_K_M.gguf",
-        size_mb=4680,
+        size_mb=4467,              # реально 4466.1 МиБ
+        size_bytes=4683074240,     # точный Content-Length с HF
         tier="standard",
         min_ram_mb=8000,
         context_length=32768,
@@ -81,7 +88,8 @@ REGISTRY: List[ModelSpec] = [
         id="qwen2.5-14b-instruct-q4_k_m",
         hf_repo="bartowski/Qwen2.5-14B-Instruct-GGUF",
         hf_filename="Qwen2.5-14B-Instruct-Q4_K_M.gguf",
-        size_mb=8990,
+        size_mb=8572,              # реально 8571.7 МиБ
+        size_bytes=8988110976,     # точный Content-Length с HF
         tier="complex",
         min_ram_mb=16000,
         context_length=32768,

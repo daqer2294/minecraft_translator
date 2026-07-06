@@ -6,6 +6,7 @@ import os
 import sys
 import threading
 import time
+import traceback
 from typing import Any, Dict, List, Optional
 
 # --- бэкенд (НЕ модифицируется; вызывается через модульные атрибуты, чтобы
@@ -344,39 +345,54 @@ class Api:
         self._state["download"].update({"active": True, "name": "", "downloaded": 0, "total": 0})
 
         def work():
-            for spec in specs:
-                self._log(f"⬇️ Скачивание {spec.display} (~{spec.size_mb} MB)…")
-                with self._lock:
-                    self._state["download"].update(
-                        {"active": True, "name": spec.display, "downloaded": 0, "total": 0}
-                    )
-
-                def cb(done, total, spec=spec):
+            failed = False
+            try:
+                for spec in specs:
+                    # Диагностика: показываем, ЧТО и ОТКУДА тянем (видно в логе и
+                    # в терминале при запуске бинарника напрямую).
+                    try:
+                        url = dl._resolve_url(spec)
+                    except Exception:
+                        url = "(unresolved)"
+                    self._log(f"⬇️ Скачивание {spec.display} (~{spec.size_mb} MB)…")
+                    self._log(f"   URL: {url}")
                     with self._lock:
                         self._state["download"].update(
-                            {"active": True, "name": spec.display, "downloaded": done, "total": total}
+                            {"active": True, "name": spec.display, "downloaded": 0, "total": 0}
                         )
 
-                try:
-                    dl.download_model(spec, progress_cb=cb)
-                    self._log(f"✅ Скачано: {spec.display}")
-                except dl.DownloadError as e:
-                    self._log(f"❌ Ошибка скачивания {spec.display}: {e}")
-                    self._set(phase="error", message=str(e))
-                    with self._lock:
-                        self._state["download"]["active"] = False
-                    return
-                except Exception as e:
-                    self._log(f"❌ Непредвиденная ошибка при скачивании: {e}")
-                    self._set(phase="error", message=str(e))
-                    with self._lock:
-                        self._state["download"]["active"] = False
-                    return
-            with self._lock:
-                self._state["download"]["active"] = False
-            self._refresh_model_status()
-            self._set(phase="idle")
-            self._log("🎉 Модели готовы. Нажмите «Старт».")
+                    def cb(done, total, spec=spec):
+                        with self._lock:
+                            self._state["download"].update(
+                                {"active": True, "name": spec.display,
+                                 "downloaded": done, "total": total}
+                            )
+
+                    try:
+                        dl.download_model(spec, progress_cb=cb)
+                        self._log(f"✅ Скачано: {spec.display}")
+                    except dl.DownloadError as e:
+                        self._log(f"❌ Ошибка скачивания {spec.display}: {e}")
+                        self._set(phase="error", message=str(e))
+                        failed = True
+                        return
+                    except Exception as e:
+                        # полный traceback в stderr — виден при запуске из терминала
+                        traceback.print_exc()
+                        self._log(f"❌ Непредвиденная ошибка при скачивании: {e!r}")
+                        self._set(phase="error", message=str(e))
+                        failed = True
+                        return
+                self._refresh_model_status()
+                self._set(phase="idle")
+                self._log("🎉 Модели готовы. Нажмите «Старт».")
+            finally:
+                # ГАРАНТИРОВАННО снимаем флаг активной загрузки — иначе модалка
+                # могла бы «зависнуть» на 0 MB навсегда при любом сбое/выходе.
+                with self._lock:
+                    self._state["download"]["active"] = False
+                if failed:
+                    self._refresh_model_status()
 
         self._dl_thread = threading.Thread(target=work, daemon=True)
         self._dl_thread.start()
