@@ -9,6 +9,13 @@ jobs:
   build:
     name: ${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.variant }}
     runs-on: ${{ matrix.os }}
+    # Таймаут ограничивает ВРЕМЯ ВЫПОЛНЕНИЯ (не время ожидания раннера в очереди!).
+    # Не-Intel легам оставляем дефолт GitHub (360 мин) — их поведение не меняется;
+    # Intel-легу задаём короткий 40 мин через matrix.
+    timeout-minutes: ${{ matrix.timeout_minutes || 360 }}
+    # optional-леги (Intel) не валят весь workflow при сбое/проблемах с раннером
+    # и не блокируют win-x64 / mac-arm64 и PR. Для остальных → false (без изменений).
+    continue-on-error: ${{ matrix.optional || false }}
     strategy:
       fail-fast: false
       matrix:
@@ -26,15 +33,25 @@ jobs:
             spec: MinecraftTranslator-mac.spec
             reqfile: requirements-mac.txt
             variant: ""
-          # Intel Mac: пребилт-колеса llama-cpp-python под macOS x86_64 НЕТ, а
-          # компиляция из исходников в CI ненадёжна → честно помечаем сборку
-          # external-only (локальный in-process инференс в неё не входит).
-          - os: macos-13
+          # Intel Mac (external-only): пребилт-колеса llama-cpp-python под macOS
+          # x86_64 НЕТ → локальный in-process инференс в сборку не входит
+          # (работают external / hybrid / server).
+          #
+          # ВАЖНО про раннер: macos-13 (Intel Ventura) ВЫВЕДЕН ИЗ ЭКСПЛУАТАЦИИ
+          # (полностью недоступен с декабря 2025) — именно из-за него job часами
+          # висел в очереди в ожидании несуществующего раннера. Актуальный
+          # БЕСПЛАТНЫЙ Intel-раннер для публичных репозиториев — macos-15-intel
+          # (x86_64 на GitHub живёт до вывода образа macOS 15, ~осень 2027).
+          # Лег помечен optional + короткий timeout: Intel — уходящая ниша, его
+          # сбой/недоступность не должны блокировать основные сборки.
+          - os: macos-15-intel
             platform: mac
             arch: x64
             spec: MinecraftTranslator-mac.spec
             reqfile: ""
             variant: "-external-only"
+            optional: true
+            timeout_minutes: 40
 
     steps:
       - name: Checkout
