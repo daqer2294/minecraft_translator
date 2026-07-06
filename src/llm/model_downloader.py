@@ -3,14 +3,33 @@ from __future__ import annotations
 
 import errno
 import os
+import ssl
 import threading
 import urllib.error
 import urllib.request
 from typing import Callable, Optional
 
+import certifi
+
 from .. import config
 from . import model_registry as registry
 from .model_registry import ModelSpec
+
+
+def _ssl_context() -> Optional[ssl.SSLContext]:
+    """
+    SSL-контекст с CA-бандлом certifi.
+
+    Критично для PyInstaller-сборок (особенно macOS/.app): у «замороженного»
+    Python нет доступа к системным CA, и SSL-верификация HTTPS к HuggingFace
+    падает/висит. Явно указываем certifi.where() — так же, как в
+    openai_compatible.py. Если что-то пошло не так — возвращаем None (urllib
+    возьмёт дефолтный контекст), чтобы не ломать dev-окружение.
+    """
+    try:
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        return None
 
 # =============================================================================
 # Скачивание GGUF-моделей с HuggingFace по требованию.
@@ -101,11 +120,20 @@ def download_model(
 
     url = _resolve_url(spec)
     req = urllib.request.Request(url, headers={"User-Agent": "minecraft_translator"})
+    ctx = _ssl_context()
 
     try:
-        with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
+        with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT, context=ctx) as resp:
             total = int(resp.headers.get("Content-Length") or 0)
             downloaded = 0
+            # Сразу сообщаем известный размер — чтобы UI показал «0 / N MB», а не
+            # «0 MB / ?». Если этот колбэк не сработал, значит заголовки так и не
+            # пришли (сеть/SSL), и это будет видно (ошибка ниже), а не тихий висяк.
+            if progress_cb:
+                try:
+                    progress_cb(0, total)
+                except Exception:
+                    pass
             with open(part, "wb") as f:
                 while True:
                     if cancel_event is not None and cancel_event.is_set():

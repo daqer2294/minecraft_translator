@@ -1,8 +1,14 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller-спека — macOS (.app bundle, без code signing).
 #
-# Собирает onefile-бинарь и оборачивает его в MinecraftTranslator.app (BUNDLE),
-# бундля статические веб-ассеты (src/gui/web/*). Backend WKWebView (cocoa)
+# ONEDIR-сборка (EXE → COLLECT → BUNDLE), а НЕ onefile.
+# Почему onedir (BUG 2 — дублирование Spaces/Dock при запуске):
+#   PyInstaller официально НЕ рекомендует onefile+windowed для macOS .app —
+#   такой bundle распаковывается при каждом запуске и ломает активацию окна
+#   (двойной Dock-иконка, повторный запуск, создание новых Spaces). onedir —
+#   штатная раскладка .app, окно ведёт себя как обычное приложение.
+#
+# Бандлит статические веб-ассеты (src/gui/web/*). Backend WKWebView (cocoa)
 # подтягивается pywebview автоматически при наличии pyobjc.
 #
 # Сборка:  pyinstaller --noconfirm --clean MinecraftTranslator-mac.spec
@@ -26,6 +32,7 @@ hiddenimports = [
     "Foundation",
     "WebKit",
     "Quartz",
+    "certifi",                  # CA-бандл для HTTPS-скачивания моделей (BUG 1)
 ]
 
 # Если установлен llama-cpp-python (in-process инференс с Metal) — тащим его
@@ -56,20 +63,17 @@ a = Analysis(
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
+# ONEDIR: EXE без бинарников (exclude_binaries=True) → COLLECT → BUNDLE.
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="MinecraftTranslator",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,              # UPX на macOS ломает подписи/бинарники — выключено
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -78,8 +82,19 @@ exe = EXE(
     entitlements_file=None,
 )
 
-app = BUNDLE(
+coll = COLLECT(
     exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="MinecraftTranslator",
+)
+
+app = BUNDLE(
+    coll,
     name="MinecraftTranslator.app",
     icon=None,
     bundle_identifier="com.minecrafttranslator.app",

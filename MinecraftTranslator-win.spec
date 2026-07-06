@@ -22,6 +22,7 @@ hiddenimports = [
     "clr",
     "clr_loader",
     "pythonnet",
+    "certifi",                         # CA-бандл для HTTPS-скачивания моделей (BUG 1)
 ]
 
 # Если установлен llama-cpp-python (in-process инференс) — тащим его бинарники/данные.
