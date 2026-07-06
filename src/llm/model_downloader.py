@@ -81,7 +81,17 @@ def local_model_path(spec: ModelSpec) -> str:
 
 
 def is_downloaded(spec: ModelSpec, tolerance: float = _SIZE_TOLERANCE) -> bool:
-    """Скачана ли модель (файл есть и размер не слишком мал)."""
+    """
+    Скачана ли модель полностью.
+
+    Финальный файл (без .part) создаётся download_model только ПОСЛЕ полной
+    загрузки (os.replace из .part), поэтому его наличие + верный размер = готово.
+
+    Приоритет проверки размера:
+      1) точный size_bytes (HF Content-Length) — надёжнее всего: полный файл
+         совпадает по размеру байт-в-байт (допускаем крошечный дрейф ≤0.1%);
+      2) фоллбек — грубый порог по size_mb (если size_bytes не задан).
+    """
     path = local_model_path(spec)
     if not os.path.exists(path):
         return False
@@ -89,6 +99,12 @@ def is_downloaded(spec: ModelSpec, tolerance: float = _SIZE_TOLERANCE) -> bool:
         size = os.path.getsize(path)
     except OSError:
         return False
+
+    size_bytes = getattr(spec, "size_bytes", 0) or 0
+    if size_bytes > 0:
+        # полный файл ≈ точному размеру; частичный (обрыв) заметно меньше
+        return size >= int(size_bytes * 0.999)
+
     if spec.size_mb <= 0:
         return size > 0
     expected = spec.size_mb * 1024 * 1024
