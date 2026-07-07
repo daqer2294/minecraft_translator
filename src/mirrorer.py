@@ -16,6 +16,30 @@ def _rel(base: str, p: str) -> str:
     return os.path.relpath(p, start=base).replace("\\", "/")
 
 
+def _ensure_readable(base_input: str) -> None:
+    """
+    Явно проверяем, что входную папку МОЖНО читать.
+
+    macOS TCC: если у приложения нет доступа к папке (Documents/Desktop/Downloads
+    и т.п.), низкоуровневый opendir возвращает EPERM → os.walk с onerror=None
+    молча вернёт ПУСТО, и пользователь видел «scanned: 0» без ошибки. Тут мы
+    инициируем реальный доступ и превращаем отказ в понятную ошибку.
+    """
+    if not os.path.exists(base_input):
+        raise FileNotFoundError(f"Папка не найдена: {base_input}")
+    try:
+        with os.scandir(base_input) as it:
+            next(it, None)
+    except PermissionError as e:
+        raise PermissionError(
+            "Нет доступа к папке:\n"
+            f"{base_input}\n"
+            "Разрешите доступ в «Системные настройки → Конфиденциальность и "
+            "безопасность → Файлы и папки» (или «Доступ к диску»), либо выберите "
+            "папку заново кнопкой «Выбрать…» и повторите."
+        ) from e
+
+
 def _is_lang_en_us(path_norm: str) -> bool:
     return path_norm.endswith("/lang/en_us.json") and "/assets/" in path_norm
 
@@ -255,11 +279,23 @@ def mirror_translate_dir(
     base_input = os.path.abspath(os.path.expanduser(base_input))
     out_root = os.path.abspath(out_root)
 
+    # Доступ к входной папке — до скана (иначе os.walk молча вернёт пусто).
+    _ensure_readable(base_input)
+
     # 1) Скан: собираем кандидатов (не все файлы подряд)
     candidates: List[str] = []
     jar_files: List[str] = []
 
-    for root, _, fnames in os.walk(base_input):
+    # os.walk по умолчанию МОЛЧА игнорирует ошибки доступа к подпапкам —
+    # перехватываем их и сообщаем, чтобы частичный отказ не выглядел как «пусто».
+    perm_denied: List[str] = []
+
+    def _on_walk_error(err: OSError):
+        target = getattr(err, "filename", None) or str(err)
+        perm_denied.append(str(target))
+        log(f"[WARN][access] нет доступа: {target} ({err})")
+
+    for root, _, fnames in os.walk(base_input, onerror=_on_walk_error):
         r_norm = root.replace("\\", "/")
         for fname in fnames:
             full = os.path.join(root, fname)
@@ -277,6 +313,23 @@ def mirror_translate_dir(
             jar_ready.append(jp)
 
     total = len(candidates) + len(jar_ready)
+
+    # Ничего не нашли — объясняем ПОЧЕМУ (доступ vs пустая/не та папка), а не
+    # молча «scanned: 0».
+    if total == 0:
+        if perm_denied:
+            log(
+                "[!] Ничего не отсканировано: часть папок недоступна (нет прав). "
+                "Разрешите доступ к папке в «Системные настройки → Конфиденциальность "
+                "и безопасность → Файлы и папки» и повторите."
+            )
+        else:
+            log(
+                "[!] В выбранной папке не найдено поддерживаемых файлов "
+                "(assets/*/lang/en_us.json, FTB Quests .snbt, Patchouli, tips, "
+                "KubeJS .js, .jar в mods). Проверьте, что выбрана папка модпака."
+            )
+
     if on_total:
         on_total(total)
 

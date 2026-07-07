@@ -107,5 +107,19 @@ app = BUNDLE(
         # разрешаем системную тёмную/светлую тему (prefers-color-scheme в UI)
         "NSRequiresAquaSystemAppearance": False,
         "LSMinimumSystemVersion": "11.0",
+        # macOS TCC: тексты, которые система показывает в запросе доступа к
+        # защищённым папкам. Без них не-sandbox приложение может тихо получать
+        # отказ вместо понятного запроса при чтении Documents/Desktop/Downloads.
+        "NSDocumentsFolderUsageDescription":
+            "Доступ к папке нужен, чтобы прочитать файлы модпака для перевода "
+            "(модпаки обычно лежат в Documents, напр. CurseForge/Instances).",
+        "NSDesktopFolderUsageDescription":
+            "Доступ к папке нужен, чтобы прочитать файлы модпака для перевода, "
+            "если он лежит на Рабочем столе.",
+        "NSDownloadsFolderUsageDescription":
+            "Доступ к папке нужен, чтобы прочитать файлы модпака для перевода, "
+            "если он лежит в Загрузках.",
+        "NSRemovableVolumesUsageDescription":
+            "Доступ нужен, чтобы прочитать файлы модпака с внешнего диска.",
     },
 )
