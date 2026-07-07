@@ -22,6 +22,19 @@ def _make_external(cfg) -> OpenAICompatibleClient:
     )
 
 
+def _make_ollama(cfg) -> OpenAICompatibleClient:
+    """
+    Ollama = тот же OpenAICompatibleClient, только с base_url локальной Ollama и
+    без ключа. Клиент сам добавит /v1/chat/completions → это OpenAI-эндпоинт
+    Ollama. Логику НЕ дублируем.
+    """
+    return OpenAICompatibleClient(
+        base_url=cfg.ollama_base_url,
+        api_key="",                 # Ollama не требует ключа
+        model=cfg.ollama_model,
+    )
+
+
 def _resolve_spec(cfg, tier: str):
     """Спека модели для тира: явный *_model_id из конфига или дефолт реестра."""
     mid = cfg.light_model_id if tier == "light" else cfg.standard_model_id
@@ -103,6 +116,11 @@ def build_clients(cfg: "ProviderConfig") -> Tuple[LLMClient, Optional[LLMClient]
         # complex = тот же внешний клиент: сложные строки обслуживаются мощной
         # моделью, разовая пометка про «light-fallback» не нужна.
         return ext, ext
+
+    if mode == "ollama":
+        # Один клиент Ollama на всё (простые и сложные строки).
+        oll = _make_ollama(cfg)
+        return oll, oll
 
     light = _make_local_light(cfg)
 
