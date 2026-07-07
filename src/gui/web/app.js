@@ -79,8 +79,14 @@ function wireEvents() {
   $("#saveKey").addEventListener("click", () => call("set_key", $("#apiKey").value).then(render));
 
   $$(".mode").forEach((m) =>
-    m.addEventListener("click", () => call("set_mode", m.dataset.mode).then(render))
+    m.addEventListener("click", () => onModeClick(m.dataset.mode))
   );
+
+  // Ollama
+  $("#ollamaRecheck").addEventListener("click", () => call("detect_ollama").then(render));
+  $("#ollamaModelSel").addEventListener("change", (e) => call("set_ollama_model", e.target.value).then(render));
+  $("#ollamaUse").addEventListener("click", () => call("set_ollama_model", $("#ollamaModelSel").value).then(render));
+  $("#ollamaOpenSite").addEventListener("click", () => call("open_url", "https://ollama.com"));
 
   $("#startBtn").addEventListener("click", onStart);
   $("#pauseBtn").addEventListener("click", () => call("pause").then(render));
@@ -88,7 +94,14 @@ function wireEvents() {
   $("#stopBtn").addEventListener("click", () => call("stop").then(render));
 
   $("#dlStart").addEventListener("click", onDownloadConfirm);
-  $("#dlCancel").addEventListener("click", () => { closeDlModal(); });
+  $("#dlCancel").addEventListener("click", () => { closeDlModal(); });        // «Позже»
+  $("#dlAbort").addEventListener("click", () => call("cancel_download").then(render)); // «Отмена»
+
+  // BUG 1: рекомендацию тира применяем ТОЛЬКО по явному клику
+  $("#hwRecApply").addEventListener("click", () => {
+    const t = $("#hwRecApply").dataset.tier;
+    if (t) call("set_tier", t).then(render);
+  });
 
   $("#helpBtn").addEventListener("click", () => { $("#helpOverlay").hidden = false; });
   $("#helpClose").addEventListener("click", () => { $("#helpOverlay").hidden = true; });
@@ -97,11 +110,21 @@ function wireEvents() {
   });
 }
 
+async function onModeClick(mode) {
+  const st = await call("set_mode", mode);
+  render(st);
+  // при выборе Ollama сразу автодетект (без ручного ввода)
+  if (mode === "ollama") {
+    const s = await call("detect_ollama");
+    render(s);
+  }
+}
+
 async function onStart() {
   const res = await call("start");
   if (!res) return;
   if (res.need_download && res.need_download.length) {
-    openDlModal(res.need_download);
+    openDlModal(res.need_download, res.active_tier);
   }
   render(res);
 }
@@ -110,19 +133,30 @@ async function onDownloadConfirm() {
   const ids = pendingDownload.map((m) => m.id);
   $("#dlStart").disabled = true;
   await call("download_models", ids);
-  // дальше прогресс покажет polling; кнопки скрываем
+  // дальше прогресс + кнопку «Отмена» покажет polling (updateDlModal)
 }
 
 // ---- download modal ----
-function openDlModal(models) {
+function openDlModal(models, activeTier) {
   pendingDownload = models || [];
   const total = pendingDownload.reduce((s, m) => s + (m.size_mb || 0), 0);
   $("#dlTitle").textContent = "Нужно скачать модель";
-  $("#dlDesc").textContent =
-    pendingDownload.map((m) => m.label).join(", ") + ` · ~${total} MB`;
+  // BUG 3: явно какая модель и для какого тира
+  const lines = pendingDownload.map(
+    (m) => `«${m.label}» — для тира «${m.tier || activeTier || "?"}», ~${m.size_mb || 0} MB`
+  );
+  let desc = lines.join("\n");
+  if (pendingDownload.some((m) => m.tier && m.tier !== "light")) {
+    desc +=
+      "\n\nℹ️ Лёгкая модель (тир «light») обычно уже скачана и доступна. " +
+      "Если не хотите качать большую — переключите тир на «light» в настройках железа.";
+  }
+  desc += `\n\nВсего: ~${total} MB`;
+  $("#dlDesc").textContent = desc;
   $("#dlStart").hidden = false;
   $("#dlStart").disabled = false;
-  $("#dlCancel").hidden = false;
+  $("#dlCancel").hidden = false;   // «Позже» — просто закрыть, не качать
+  $("#dlAbort").hidden = true;     // «Отмена» — только во время активной загрузки
   $("#dlBar").style.width = "0%";
   $("#dlBytes").textContent = "—";
   $("#dlOverlay").hidden = false;
@@ -130,22 +164,30 @@ function openDlModal(models) {
 }
 function closeDlModal() {
   $("#dlOverlay").hidden = true;
+  $("#dlAbort").hidden = true;
   dlModalOpen = false;
   pendingDownload = [];
 }
 function updateDlModal(state) {
   const d = state.download || {};
+  // BUG 2: если загрузка отменена — закрываем и НЕ переоткрываем
+  // (флаг держится до следующего явного «Старт», который его сбросит на бэке)
+  if (d.cancelled) {
+    if (dlModalOpen) closeDlModal();
+    return;
+  }
   if (d.active) {
     if (!dlModalOpen) { $("#dlOverlay").hidden = false; dlModalOpen = true; }
     $("#dlStart").hidden = true;
     $("#dlCancel").hidden = true;
+    $("#dlAbort").hidden = false;   // рабочая «Отмена» во время загрузки
     $("#dlTitle").textContent = "Скачивание модели";
     $("#dlDesc").textContent = d.name || "";
     const pct = d.total ? Math.min(100, (d.downloaded / d.total) * 100) : 0;
     $("#dlBar").style.width = pct.toFixed(1) + "%";
     $("#dlBytes").textContent = `${fmtBytes(d.downloaded)} / ${d.total ? fmtBytes(d.total) : "?"}`;
   } else if (dlModalOpen && $("#dlStart").hidden) {
-    // скачивание завершилось (кнопки были скрыты = шёл прогресс)
+    // загрузка завершилась (кнопки были скрыты = шёл прогресс) → закрываем
     closeDlModal();
   }
 }
@@ -167,6 +209,9 @@ function render(state) {
   $("#keyBlock").hidden = !showKey;
   $("#keyHint").textContent = state.key_present ? "✅ Ключ сохранён" : "⚠️ Ключ не задан";
 
+  // панель Ollama
+  renderOllama(state);
+
   // фаза
   const pill = $("#phasePill");
   pill.textContent = state.phase;
@@ -174,6 +219,18 @@ function render(state) {
 
   // железо
   $("#hwSummary").textContent = state.hardware ? state.hardware.summary : "проба ещё не выполнялась";
+
+  // рекомендация тира (BUG 1): показываем, но НЕ переключаем автоматически
+  const rec = state.hardware && state.hardware.recommended_tier;
+  const hwRec = $("#hwRec");
+  if (rec && rec !== state.tier) {
+    $("#hwRecText").textContent = `Ваше железо потянет тир «${rec}» (сейчас «${state.tier}»).`;
+    $("#hwRecApply").textContent = `Переключиться на «${rec}»`;
+    $("#hwRecApply").dataset.tier = rec;
+    hwRec.hidden = false;
+  } else {
+    hwRec.hidden = true;
+  }
 
   // модель
   const m = state.model || {};
@@ -216,6 +273,56 @@ function modelLine(tier, s) {
     ? '<span class="badge yes">скачана</span>'
     : '<span class="badge no">не скачана</span>';
   return `<b>${tier}</b>: ${s.label} ${badge}`;
+}
+
+function renderOllama(state) {
+  const block = $("#ollamaBlock");
+  const isOllama = state.mode === "ollama";
+  block.hidden = !isOllama;
+  if (!isOllama) return;
+
+  const o = state.ollama || {};
+  const status = $("#ollamaStatus");
+  const modelRow = $("#ollamaModelRow");
+  const cmd = $("#ollamaCmd");
+  const openSite = $("#ollamaOpenSite");
+  const sel = $("#ollamaModelSel");
+  const pull = o.recommended_pull || "ollama pull qwen2.5:3b";
+
+  if (!o.checked) {
+    status.textContent = "Проверка…";
+    modelRow.hidden = true; cmd.hidden = true; openSite.hidden = true;
+    return;
+  }
+
+  if (o.available && o.models && o.models.length) {
+    // Ollama найдена + есть модели → список для выбора
+    status.textContent = `✅ Ollama найдена (${o.base_url}). Моделей: ${o.models.length}. Выбрана: ${o.model || "—"}`;
+    if (sel.dataset.count !== String(o.models.length)) {
+      sel.innerHTML = "";
+      o.models.forEach((m) => {
+        const opt = document.createElement("option");
+        opt.value = m.name;
+        opt.textContent = m.size_mb ? `${m.name} (~${m.size_mb} MB)` : m.name;
+        sel.appendChild(opt);
+      });
+      sel.dataset.count = String(o.models.length);
+    }
+    if (o.model && sel.value !== o.model) sel.value = o.model;
+    modelRow.hidden = false; cmd.hidden = true; openSite.hidden = true;
+  } else if (o.available) {
+    // Ollama есть, но моделей нет → подсказка pull
+    status.textContent = "⚠️ Ollama запущена, но нет установленных моделей. Установите рекомендованную в терминале:";
+    cmd.textContent = pull;
+    sel.dataset.count = "";
+    modelRow.hidden = true; cmd.hidden = false; openSite.hidden = true;
+  } else {
+    // Ollama не найдена → инструкция по установке
+    status.textContent = "❌ Ollama не найдена (localhost:11434). Установите её с ollama.com, затем в терминале установите модель:";
+    cmd.textContent = pull;
+    sel.dataset.count = "";
+    modelRow.hidden = true; cmd.hidden = false; openSite.hidden = false;
+  }
 }
 
 // ---- polling ----

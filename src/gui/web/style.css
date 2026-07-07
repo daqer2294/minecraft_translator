@@ -107,7 +107,8 @@ input:focus, select:focus { border-color: var(--accent); }
 .btn.danger { color: var(--err); border-color: var(--err); background: transparent; }
 
 /* режимы */
-.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.modes { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+@media (min-width: 860px) { .modes { grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 520px) { .modes { grid-template-columns: 1fr; } }
 .mode {
   text-align: left; display: flex; flex-direction: column; gap: 4px;
@@ -125,6 +126,10 @@ input:focus, select:focus { border-color: var(--accent); }
 .hw { background: var(--card-2); border: 1px solid var(--border); border-radius: 10px;
   padding: 10px 12px; color: var(--muted); font-size: 12.5px; white-space: pre-wrap; margin-bottom: 12px; }
 .model-status { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+.hw-rec { margin-top: 10px; gap: 10px; align-items: center; padding: 8px 10px;
+  border: 1px solid var(--accent); border-radius: 10px;
+  background: rgba(79,124,255,.10); flex-wrap: wrap; }
+.hw-rec .hint { color: var(--text); }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-weight: 600; font-size: 11px; }
 .badge.yes { background: rgba(33,163,102,.16); color: var(--ok); }
 .badge.no { background: rgba(229,72,77,.16); color: var(--err); }

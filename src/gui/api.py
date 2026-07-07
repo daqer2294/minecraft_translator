@@ -19,6 +19,7 @@ from ..llm import factory
 from ..llm import hardware_probe as hp
 from ..llm import model_downloader as dl
 from ..llm import model_registry as registry
+from ..llm import ollama_probe
 
 LOG_TAIL = 400  # сколько последних строк лога держим для UI
 
@@ -91,6 +92,7 @@ class Api:
         self._control = _Control()
         self._worker: Optional[threading.Thread] = None
         self._dl_thread: Optional[threading.Thread] = None
+        self._dl_cancel: Optional[threading.Event] = None  # отмена активной загрузки
         self._start_time = 0.0
 
         hw = hp.load_cached()
@@ -115,9 +117,17 @@ class Api:
             "total": 0, "done": 0, "ok": 0, "err": 0, "skip": 0,
             "speed": 0.0, "eta": 0.0,
             # прогресс скачивания
-            "download": {"active": False, "name": "", "downloaded": 0, "total": 0},
+            "download": {"active": False, "cancelled": False, "name": "", "downloaded": 0, "total": 0},
             "hardware": self._hw_dict(hw),
             "model": None,
+            # автодетект Ollama (заполняется detect_ollama по требованию)
+            "ollama": {
+                "checked": False, "available": False, "models": [],
+                "model": getattr(config.PROVIDER, "ollama_model", ""),
+                "base_url": getattr(config.PROVIDER, "ollama_base_url", ""),
+                "recommended_pull": ollama_probe.recommended_pull_cmd(),
+                "error": "",
+            },
         }
         self._refresh_model_status()
         self._log("Готово. Выберите папку модпака и нажмите «Старт».")
@@ -196,7 +206,7 @@ class Api:
         return {
             "options": {
                 "langs": langs,
-                "modes": ["local", "external", "hybrid"],
+                "modes": ["local", "external", "hybrid", "ollama"],
                 "tiers": ["light", "standard"],
                 "light_models": light_opts,
                 "standard_models": std_opts,
@@ -230,11 +240,64 @@ class Api:
 
     def set_mode(self, mode: str) -> Dict[str, Any]:
         mode = (mode or "local").strip()
-        if mode not in ("local", "external", "hybrid"):
+        if mode not in ("local", "external", "hybrid", "ollama"):
             mode = "local"
         config.PROVIDER.mode = mode
         self._set(mode=mode)
         self._log(f"⚙️ Режим провайдера: {mode}")
+        return self._snapshot()
+
+    # ================= Ollama (автодетект локального инференса) =================
+
+    def detect_ollama(self) -> Dict[str, Any]:
+        """
+        Проверить локальную Ollama и её модели. Некритичный путь: любые ошибки
+        превращаются в available=False, без исключений наружу.
+        """
+        base = getattr(config.PROVIDER, "ollama_base_url", ollama_probe.OLLAMA_DEFAULT_URL)
+        st = ollama_probe.probe_ollama(base)
+        models = [{"name": m.name, "size_mb": (m.size_bytes // (1024 * 1024))} for m in st.models]
+
+        # авто-выбор разумной модели, если пользователь ещё не выбирал
+        if st.available and st.models and not config.PROVIDER.ollama_model:
+            sug = ollama_probe.suggest_model(st.models)
+            if sug:
+                config.PROVIDER.ollama_model = sug
+
+        with self._lock:
+            self._state["ollama"] = {
+                "checked": True,
+                "available": st.available,
+                "models": models,
+                "model": config.PROVIDER.ollama_model,
+                "base_url": st.base_url,
+                "recommended_pull": ollama_probe.recommended_pull_cmd(),
+                "error": st.error,
+            }
+        if st.available:
+            self._log(f"🦙 Ollama найдена ({st.base_url}), моделей: {len(models)}")
+        else:
+            self._log("🦙 Ollama не найдена (localhost:11434)")
+        return self._snapshot()
+
+    def set_ollama_model(self, model_name: str) -> Dict[str, Any]:
+        """Выбрать модель Ollama и переключиться в режим ollama."""
+        name = (model_name or "").strip()
+        config.PROVIDER.ollama_model = name
+        config.PROVIDER.mode = "ollama"
+        with self._lock:
+            self._state["mode"] = "ollama"
+            self._state["ollama"]["model"] = name
+        self._log(f"🦙 Модель Ollama: {name or '—'}")
+        return self._snapshot()
+
+    def open_url(self, url: str) -> Dict[str, Any]:
+        """Открыть внешнюю ссылку в системном браузере (напр. ollama.com)."""
+        try:
+            import webbrowser
+            webbrowser.open((url or "").strip())
+        except Exception as e:
+            self._set(message=f"Не удалось открыть ссылку: {e}")
         return self._snapshot()
 
     def set_tier(self, tier: str) -> Dict[str, Any]:
@@ -304,10 +367,18 @@ class Api:
             except Exception as e:
                 self._log(f"❌ Проба железа не удалась: {e}")
                 return
-            config.PROVIDER.tier = hw.recommended_tier
-            self._set(hardware=self._hw_dict(hw), tier=hw.recommended_tier)
+            # BUG 1: НЕ меняем активный тир автоматически — только сохраняем пробу
+            # и рекомендацию. Переключение тира — явным действием пользователя
+            # (кнопка в UI → set_tier). Иначе Старт неожиданно требует скачать 7B.
+            self._set(hardware=self._hw_dict(hw))
             self._refresh_model_status()
-            self._log(f"🖥 {hw.summary()}")
+            rec = hw.recommended_tier
+            cur = self._state.get("tier")
+            if rec and rec != cur:
+                self._log(f"🖥 {hw.summary()} — рекомендуется тир «{rec}» (текущий: «{cur}»). "
+                          f"Переключить можно вручную.")
+            else:
+                self._log(f"🖥 {hw.summary()}")
 
         threading.Thread(target=work, daemon=True).start()
         return self._snapshot()
@@ -341,15 +412,24 @@ class Api:
             self._log("Модели уже скачаны.")
             return self._snapshot()
 
+        # BUG 2: событие отмены прокидываем в download_model (загрузчик его умеет)
+        cancel = threading.Event()
+        self._dl_cancel = cancel
+
         self._set(phase="downloading", message="")
-        self._state["download"].update({"active": True, "name": "", "downloaded": 0, "total": 0})
+        with self._lock:
+            self._state["download"].update(
+                {"active": True, "cancelled": False, "name": "", "downloaded": 0, "total": 0}
+            )
 
         def work():
             failed = False
+            cancelled = False
             try:
                 for spec in specs:
-                    # Диагностика: показываем, ЧТО и ОТКУДА тянем (видно в логе и
-                    # в терминале при запуске бинарника напрямую).
+                    if cancel.is_set():
+                        cancelled = True
+                        return
                     try:
                         url = dl._resolve_url(spec)
                     except Exception:
@@ -362,6 +442,10 @@ class Api:
                         )
 
                     def cb(done, total, spec=spec):
+                        # после отмены — колбэк ничего не пишет, чтобы active не
+                        # «воскрешался» и модалка не переоткрывалась
+                        if cancel.is_set():
+                            return
                         with self._lock:
                             self._state["download"].update(
                                 {"active": True, "name": spec.display,
@@ -369,15 +453,19 @@ class Api:
                             )
 
                     try:
-                        dl.download_model(spec, progress_cb=cb)
+                        dl.download_model(spec, progress_cb=cb, cancel_event=cancel)
                         self._log(f"✅ Скачано: {spec.display}")
                     except dl.DownloadError as e:
+                        if cancel.is_set():
+                            # штатная отмена пользователем — не ошибка
+                            cancelled = True
+                            self._log(f"⏹ Скачивание отменено: {spec.display}")
+                            return
                         self._log(f"❌ Ошибка скачивания {spec.display}: {e}")
                         self._set(phase="error", message=str(e))
                         failed = True
                         return
                     except Exception as e:
-                        # полный traceback в stderr — виден при запуске из терминала
                         traceback.print_exc()
                         self._log(f"❌ Непредвиденная ошибка при скачивании: {e!r}")
                         self._set(phase="error", message=str(e))
@@ -387,15 +475,31 @@ class Api:
                 self._set(phase="idle")
                 self._log("🎉 Модели готовы. Нажмите «Старт».")
             finally:
-                # ГАРАНТИРОВАННО снимаем флаг активной загрузки — иначе модалка
-                # могла бы «зависнуть» на 0 MB навсегда при любом сбое/выходе.
                 with self._lock:
                     self._state["download"]["active"] = False
-                if failed:
+                    # cancelled-флаг держим, пока новый Старт/скачивание его не сбросит:
+                    # updateDlModal по нему закрывает модалку и не переоткрывает
+                    self._state["download"]["cancelled"] = cancelled
+                if cancelled:
+                    self._set(phase="idle", message="Скачивание отменено.")
+                if failed or cancelled:
                     self._refresh_model_status()
 
         self._dl_thread = threading.Thread(target=work, daemon=True)
         self._dl_thread.start()
+        return self._snapshot()
+
+    def cancel_download(self) -> Dict[str, Any]:
+        """Отменить активную загрузку модели (BUG 2)."""
+        ev = self._dl_cancel
+        if ev is not None and not ev.is_set():
+            ev.set()
+            self._log("⏹ Отмена скачивания…")
+        # немедленно гасим активность + помечаем отменённым, чтобы модалка
+        # закрылась на ближайшем polling-тике и не переоткрылась
+        with self._lock:
+            self._state["download"]["active"] = False
+            self._state["download"]["cancelled"] = True
         return self._snapshot()
 
     # ================= перевод =================
@@ -454,6 +558,9 @@ class Api:
             if self._state["running"]:
                 self._state["message"] = "Процесс уже идёт…"
                 return self._snapshot()
+            # новый явный «Старт» сбрасывает флаг отмены (BUG 2): модалку снова
+            # можно показать (need_download), если модель действительно нужна
+            self._state["download"]["cancelled"] = False
 
         inp = (self._state["input"] or "").strip()
         out = (self._state["output"] or "").strip() or os.path.abspath("./out_mirror")
@@ -467,6 +574,11 @@ class Api:
             return self._snapshot()
 
         mode = self._state["mode"]
+
+        # ollama: нужна выбранная модель (проверять/качать GGUF не надо)
+        if mode == "ollama" and not config.PROVIDER.ollama_model:
+            self._set(message="Выберите модель Ollama (режим «Локальная Ollama»).")
+            return self._snapshot()
 
         # для локального/гибридного режима — нужна скачанная модель
         if mode in ("local", "hybrid") and not (
@@ -485,9 +597,13 @@ class Api:
             if missing:
                 self._set(message="Требуется скачать модель.")
                 snap = self._snapshot()
+                # BUG 3: указываем тир каждой модели, чтобы UI мог пояснить
+                # «нужна модель для тира X», а не путать с уже скачанной light.
                 snap["need_download"] = [
-                    {"id": s.id, "label": s.display, "size_mb": s.size_mb} for s in missing
+                    {"id": s.id, "label": s.display, "size_mb": s.size_mb, "tier": s.tier}
+                    for s in missing
                 ]
+                snap["active_tier"] = self._state["tier"]
                 return snap
 
         # запускаем перевод

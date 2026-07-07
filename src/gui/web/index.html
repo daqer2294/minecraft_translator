@@ -71,6 +71,11 @@
             <b>Гибрид</b>
             <small>Простое — локально, сложное — во внешний API.</small>
           </button>
+          <button class="mode" data-mode="ollama">
+            <span class="mode-icon">🦙</span>
+            <b>Локальная Ollama</b>
+            <small>Уже установленная Ollama. Использует её модели, ничего не качает.</small>
+          </button>
         </div>
         <div class="field" id="keyBlock" hidden>
           <span>Внешний API-ключ</span>
@@ -79,6 +84,21 @@
             <button class="btn ghost" id="saveKey">Сохранить</button>
           </div>
           <small class="hint" id="keyHint"></small>
+        </div>
+
+        <!-- Панель Ollama (видна только в режиме ollama) -->
+        <div class="field" id="ollamaBlock" hidden>
+          <span>Локальная Ollama</span>
+          <div class="hint" id="ollamaStatus">Проверка…</div>
+          <div class="row" id="ollamaModelRow" hidden>
+            <select id="ollamaModelSel"></select>
+            <button class="btn ghost" id="ollamaUse">Использовать</button>
+          </div>
+          <pre class="cmd" id="ollamaCmd" hidden></pre>
+          <div class="row" style="gap:8px; flex-wrap:wrap;">
+            <button class="btn ghost" id="ollamaRecheck">Проверить снова</button>
+            <button class="btn ghost" id="ollamaOpenSite" hidden>Открыть ollama.com</button>
+          </div>
         </div>
       </section>
 
@@ -97,6 +117,11 @@
           <div class="row">
             <button class="btn ghost" id="rescanBtn">Пересканировать железо</button>
           </div>
+        </div>
+        <!-- Рекомендация тира (BUG 1): показываем, но НЕ переключаем автоматически -->
+        <div class="hw-rec row" id="hwRec" hidden>
+          <span class="hint" id="hwRecText"></span>
+          <button class="btn ghost" id="hwRecApply">Переключиться</button>
         </div>
         <div class="model-status" id="modelStatus"></div>
       </section>
@@ -185,6 +210,7 @@
         <span id="dlBytes" class="muted">—</span>
         <div class="row">
           <button class="btn ghost" id="dlCancel">Позже</button>
+          <button class="btn danger" id="dlAbort" hidden>Отмена</button>
           <button class="btn primary" id="dlStart">Скачать</button>
         </div>
       </div>

@@ -90,6 +90,8 @@ class ProviderConfig:
       - "local"    — всё через локальную GGUF-модель (llama.cpp). Ключ API не нужен.
       - "external" — всё через внешний OpenAI-совместимый API.
       - "hybrid"   — массовые строки локально, «сложные» — через внешний API.
+      - "ollama"   — локально запущенная Ollama (OpenAI-совместимый эндпоинт),
+                     использует уже установленные там модели; ключ не нужен.
     """
     mode: str = "local"
 
@@ -102,6 +104,10 @@ class ProviderConfig:
     external_base_url: str = "https://api.openai.com"
     external_api_key: str = ""
     external_model: str = "gpt-4o-mini"
+
+    # локальная Ollama (OpenAI-совместимый эндпоинт /v1, ключ не нужен)
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = ""           # имя выбранной модели, напр. "qwen2.5:3b"
 
     # авто-выбор модели по железу (STEP 1-2) + двумерный роутинг (STEP 5)
     tier: str = "light"          # выбранный тир железа: "light" | "standard"
