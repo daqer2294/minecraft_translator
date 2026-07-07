@@ -255,9 +255,12 @@ def _jar_has_lang_en_us(jar_path: str) -> bool:
     try:
         with ZipFile(jar_path) as zf:
             for name in zf.namelist():
-                if name.endswith("assets/minecraft/lang/en_us.json"):
-                    return True
-                if "/assets/" in name and name.endswith("/lang/en_us.json"):
+                n = name.replace("\\", "/")
+                # ВНУТРИ jar пути идут ОТ КОРНЯ архива: "assets/<ns>/lang/en_us.json"
+                # (без ведущего «/»), поэтому проверка "/assets/" их не находила.
+                if n.endswith("/lang/en_us.json") and (
+                    n.startswith("assets/") or "/assets/" in n
+                ):
                     return True
     except BadZipFile:
         return False
@@ -300,7 +303,11 @@ def mirror_translate_dir(
         for fname in fnames:
             full = os.path.join(root, fname)
             pnorm = full.replace("\\", "/")
-            if fname.endswith(".jar") and "/mods/" in r_norm:
+            # jar внутри папки mods/ — проверяем ПОЛНЫЙ путь (pnorm), а НЕ r_norm:
+            # для jar прямо в <base>/mods/ каталог = ".../mods" БЕЗ хвостового «/»,
+            # поэтому "/mods/" in r_norm было False → все моды CurseForge молча
+            # игнорировались (jar лежат прямо в mods/, не в подпапках).
+            if fname.endswith(".jar") and "/mods/" in pnorm:
                 jar_files.append(full)
                 continue
             if _is_candidate(pnorm):
