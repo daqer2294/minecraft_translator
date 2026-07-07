@@ -37,9 +37,12 @@ function fmtEta(sec) {
 }
 
 // ---- init ----
+let _inited = false;
 async function init() {
+  if (_inited) return;   // защита от двойной инициализации (pywebviewready + fallback)
+  _inited = true;
   const data = await call("get_init");
-  if (!data) return;
+  if (!data) { _inited = false; return; }  // повторим позже, если API ещё не готов
   OPTIONS = data.options;
   buildLangs(OPTIONS.langs);
   buildModelSelectors();
@@ -138,18 +141,26 @@ async function onDownloadConfirm() {
 
 // ---- download modal ----
 function openDlModal(models, activeTier) {
-  pendingDownload = models || [];
+  pendingDownload = (models || []).filter(Boolean);
+  // защита: без моделей нечего показывать — не открываем «сломанную» модалку
+  if (!pendingDownload.length) { closeDlModal(); return; }
   const total = pendingDownload.reduce((s, m) => s + (m.size_mb || 0), 0);
   $("#dlTitle").textContent = "Нужно скачать модель";
-  // BUG 3: явно какая модель и для какого тира
-  const lines = pendingDownload.map(
-    (m) => `«${m.label}» — для тира «${m.tier || activeTier || "?"}», ~${m.size_mb || 0} MB`
-  );
-  let desc = lines.join("\n");
+  // BUG: всегда понятный текст — имя (или id) модели + тир + размер, без «—»
+  const lines = pendingDownload.map((m) => {
+    const name = m.label || m.id || "модель";
+    const tier = m.tier || activeTier || "";
+    const size = m.size_mb ? `~${m.size_mb} MB` : "";
+    const parts = [name];
+    if (tier) parts.push(`тир «${tier}»`);
+    if (size) parts.push(size);
+    return "• " + parts.join(", ");
+  });
+  let desc = "Для перевода нужна модель:\n" + lines.join("\n");
   if (pendingDownload.some((m) => m.tier && m.tier !== "light")) {
     desc +=
       "\n\nℹ️ Лёгкая модель (тир «light») обычно уже скачана и доступна. " +
-      "Если не хотите качать большую — переключите тир на «light» в настройках железа.";
+      "Не хотите качать большую — переключите тир на «light» в настройках железа.";
   }
   desc += `\n\nВсего: ~${total} MB`;
   $("#dlDesc").textContent = desc;
@@ -182,7 +193,8 @@ function updateDlModal(state) {
     $("#dlCancel").hidden = true;
     $("#dlAbort").hidden = false;   // рабочая «Отмена» во время загрузки
     $("#dlTitle").textContent = "Скачивание модели";
-    $("#dlDesc").textContent = d.name || "";
+    // всегда осмысленный текст, даже до первого прогресс-колбэка (когда name пуст)
+    $("#dlDesc").textContent = d.name ? `Модель: ${d.name}` : "Подготовка загрузки…";
     const pct = d.total ? Math.min(100, (d.downloaded / d.total) * 100) : 0;
     $("#dlBar").style.width = pct.toFixed(1) + "%";
     $("#dlBytes").textContent = `${fmtBytes(d.downloaded)} / ${d.total ? fmtBytes(d.total) : "?"}`;
