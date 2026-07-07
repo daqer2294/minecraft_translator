@@ -96,9 +96,15 @@ class Api:
         self._start_time = 0.0
 
         hw = hp.load_cached()
-        default_tier = getattr(config.PROVIDER, "tier", "") or (
-            hw.recommended_tier if hw else "light"
-        )
+        # Активный тир при старте — ВСЕГДА текущий PROVIDER.tier (по умолчанию
+        # "light"). Рекомендацию из hardware.json (hw.recommended_tier) НЕ
+        # применяем автоматически — только показываем в state.hardware. Иначе на
+        # мощном железе Старт неожиданно требует скачать standard-модель (7B),
+        # хотя пользователь уже работает на light (3B). Переключение тира —
+        # только явным действием (set_tier / кнопка рекомендации).
+        default_tier = getattr(config.PROVIDER, "tier", None) or "light"
+        if default_tier not in ("light", "standard"):
+            default_tier = "light"
         config.PROVIDER.tier = default_tier
 
         self._state: Dict[str, Any] = {
