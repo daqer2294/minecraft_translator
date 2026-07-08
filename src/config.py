@@ -60,24 +60,56 @@ LOCAL_MODEL_LABEL = os.environ.get("LOCAL_MODEL_LABEL", "local-gguf")
 # Режим работы переводчика: "local" | "external" | "hybrid"
 TRANSLATOR_MODE = os.environ.get("TRANSLATOR_MODE", "local")
 
+# ========== Каталог данных приложения (модели, проба железа, секреты) ==========
+# Сюда кладём скачанные GGUF-модели, кэш пробы железа и secrets.json, чтобы не
+# мусорить в рабочей папке. КРИТИЧНО для frozen-сборки: раньше secrets.json писался
+# в dirname(sys.executable) — т.е. ВНУТРЬ MinecraftTranslator.app/Contents/MacOS/
+# (бандл может быть read-only, ключ терялся при переустановке).
+APP_DATA_DIR = os.environ.get("MC_TRANSLATOR_HOME") or os.path.join(
+    os.path.expanduser("~"), ".minecraft_translator"
+)
+MODELS_DIR = os.path.join(APP_DATA_DIR, "models")
+HARDWARE_CACHE_PATH = os.path.join(APP_DATA_DIR, "hardware.json")
+
+
+def ensure_app_dirs() -> None:
+    """Создать каталоги приложения (идемпотентно)."""
+    os.makedirs(MODELS_DIR, exist_ok=True)
+
+
 # ===== Загрузка ключа из secrets.json (если есть) =====
 def _base_dir_for_user_files() -> str:
+    """Legacy-каталог (рядом с exe / корень репозитория). Только для ЧТЕНИЯ
+    старого secrets.json — запись туда больше не делаем."""
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 BASE_DIR = _base_dir_for_user_files()
-SECRETS_PATH = os.path.join(BASE_DIR, "secrets.json")
 
-try:
-    if os.path.exists(SECRETS_PATH):
-        with open(SECRETS_PATH, "r", encoding="utf-8") as _sf:
-            _secrets = json.load(_sf)
-            if not OPENAI_API_KEY:
-                OPENAI_API_KEY = _secrets.get("OPENAI_API_KEY", OPENAI_API_KEY)
-except Exception:
-    # Если секреты не прочитались — тихо игнорируем
-    pass
+# Канонический путь секретов — в каталоге данных пользователя.
+SECRETS_PATH = os.path.join(APP_DATA_DIR, "secrets.json")
+# Старое расположение: читаем как фоллбек, чтобы у существующих пользователей
+# не пропал уже сохранённый ключ. Не пишем.
+LEGACY_SECRETS_PATH = os.path.join(BASE_DIR, "secrets.json")
+
+
+def _load_api_key_from_secrets() -> str:
+    for path in (SECRETS_PATH, LEGACY_SECRETS_PATH):
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as _sf:
+                    key = (json.load(_sf) or {}).get("OPENAI_API_KEY", "")
+                    if key:
+                        return key
+        except Exception:
+            # Если секреты не прочитались — тихо игнорируем и пробуем следующий путь
+            continue
+    return ""
+
+
+if not OPENAI_API_KEY:
+    OPENAI_API_KEY = _load_api_key_from_secrets()
 
 
 # ========== Конфигурация провайдера (A-1) ==========
@@ -128,21 +160,6 @@ PROVIDER = ProviderConfig(
     external_api_key=OPENAI_API_KEY,
     external_model=TRANSLATOR_MODEL,
 )
-
-
-# ========== Каталог данных приложения (модели, проба железа) ==========
-# Сюда кладём скачанные GGUF-модели и кэш пробы железа, чтобы не мусорить в
-# рабочей папке и не гонять пробу/скачивание при каждом запуске.
-APP_DATA_DIR = os.environ.get("MC_TRANSLATOR_HOME") or os.path.join(
-    os.path.expanduser("~"), ".minecraft_translator"
-)
-MODELS_DIR = os.path.join(APP_DATA_DIR, "models")
-HARDWARE_CACHE_PATH = os.path.join(APP_DATA_DIR, "hardware.json")
-
-
-def ensure_app_dirs() -> None:
-    """Создать каталоги приложения (идемпотентно)."""
-    os.makedirs(MODELS_DIR, exist_ok=True)
 
 
 # ========== Кэш ==========
