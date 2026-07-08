@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import threading
 import time
 import traceback
@@ -66,13 +65,6 @@ class _Control:
                 self._cv.wait()
             if self.stopped:
                 raise _StopRequested()
-
-
-def _base_dir_for_user_files() -> str:
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    # src/gui/api.py → корень проекта на два уровня выше src/
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 class Api:
@@ -242,7 +234,12 @@ class Api:
         code = (code or "ru_ru").strip()
         config.TARGET_LANG = code
         self._set(lang=code)
-        self._log(f"🌐 Язык перевода: {code}")
+        if self._state["running"]:
+            # Текущий прогон использует снимок языка (P0-3) — переключение
+            # применится только со следующего «Старт».
+            self._log(f"🌐 Язык перевода: {code} (применится со следующего запуска)")
+        else:
+            self._log(f"🌐 Язык перевода: {code}")
         return self._snapshot()
 
     def set_mode(self, mode: str) -> Dict[str, Any]:
@@ -329,10 +326,12 @@ class Api:
         if not key:
             self._set(message="Ключ пустой.")
             return self._snapshot()
+        # P0-4: пишем в каталог данных пользователя (~/.minecraft_translator),
+        # а НЕ в dirname(sys.executable) — иначе в frozen-сборке ключ уезжал
+        # внутрь MinecraftTranslator.app/Contents/MacOS/ (read-only, теряется).
         try:
-            base_dir = _base_dir_for_user_files()
-            os.makedirs(base_dir, exist_ok=True)
-            with open(os.path.join(base_dir, "secrets.json"), "w", encoding="utf-8") as f:
+            os.makedirs(os.path.dirname(config.SECRETS_PATH), exist_ok=True)
+            with open(config.SECRETS_PATH, "w", encoding="utf-8") as f:
                 json.dump({"OPENAI_API_KEY": key}, f, ensure_ascii=False, indent=2)
         except Exception as e:
             self._set(message=f"Не удалось сохранить ключ: {e}")
@@ -535,7 +534,7 @@ class Api:
         # кооперативные пауза/стоп на границе файла
         self._control.checkpoint()
 
-    def _run_translation(self, inp: str, out: str, write: bool):
+    def _run_translation(self, inp: str, out: str, write: bool, target_lang: str):
         try:
             cache = TranslationCache(config.DEFAULT_CACHE_PATH)
             cfg = config.PROVIDER
@@ -543,9 +542,11 @@ class Api:
             cfg.external_api_key = config.OPENAI_API_KEY
             cfg.tier = self._state["tier"]
             primary, complex_client = factory.build_clients(cfg)
+            # P0-3: язык — снимок на весь прогон (как уже сделано для dry/write)
             tr = Translator(
                 primary, cache, strict=True, complex_client=complex_client,
                 log=self._log, cancel_event=self._translate_cancel,
+                target_lang=target_lang,
             )
 
             mirrorer.mirror_translate_dir(
@@ -554,6 +555,8 @@ class Api:
                 write=write,
                 on_total=self._on_total,
                 on_tick=self._on_tick,
+                cancel_event=self._translate_cancel,
+                target_lang=target_lang,
             )
             self._set(phase="done", message="")
             self._log(f"✅ Готово. Результат: {out} ({'saved' if write else 'dry-run'})")
@@ -630,9 +633,12 @@ class Api:
             f"{'dry-run' if self._state['dry'] else 'write'} | "
             f"lang: {self._state['lang']} | provider: {mode}"
         )
+        # P0-3: снимаем язык ОДИН раз на прогон (как dry/write). Дальнейший set_lang
+        # меняет только следующий запуск и не может расщепить текущий вывод.
         write = not self._state["dry"]
+        target_lang = self._state["lang"]
         self._worker = threading.Thread(
-            target=self._run_translation, args=(inp, out, write), daemon=True
+            target=self._run_translation, args=(inp, out, write, target_lang), daemon=True
         )
         self._worker.start()
         return self._snapshot()

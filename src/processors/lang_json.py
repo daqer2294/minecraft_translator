@@ -1,7 +1,6 @@
 # src/processors/lang_json.py
 from __future__ import annotations
 import json
-from .. import config
 from ..utils.helpers import ensure_dir_for_file
 
 
@@ -23,7 +22,7 @@ def translate_lang_json(src_path: str, dst_path: str, translator) -> None:
             values.append(v)
 
     if values:
-        outs = translator.translate_many(values, target_lang=config.TARGET_LANG)
+        outs = translator.translate_many(values)
         for k, translated in zip(keys, outs):
             out_data[k] = translated
 
@@ -49,7 +48,7 @@ def translate_lang_obj(obj: dict, output_path: str, translator) -> None:
             values.append(v)
 
     if values:
-        outs = translator.translate_many(values, target_lang=config.TARGET_LANG)
+        outs = translator.translate_many(values)
         for k, translated in zip(keys, outs):
             out_data[k] = translated
 

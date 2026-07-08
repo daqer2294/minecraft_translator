@@ -67,7 +67,7 @@ def _translate_scalar(s: str, translator) -> str:
     if not is_probably_text(s, config.SAFE_MAX_LEN):
         return s
 
-    return translator.translate(s, target_lang=config.TARGET_LANG)
+    return translator.translate(s)
 
 
 def _translate_str_token(m: re.Match, translator) -> str:

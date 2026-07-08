@@ -13,7 +13,7 @@ def _translate_value(val: Any, key_hint: str, translator):
         #   – ИЛИ если сама строка очень похожа на обычный текст
         if (key_hint in config.GENERIC_TEXT_KEYS or
                 is_probably_text(val, config.SAFE_MAX_LEN)):
-            return translator.translate(val, target_lang=config.TARGET_LANG)
+            return translator.translate(val)
         return val
 
     if isinstance(val, list):

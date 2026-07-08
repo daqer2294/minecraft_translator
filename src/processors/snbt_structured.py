@@ -147,7 +147,7 @@ def _translate_plain_text(text: str, translator, path: Sequence[str]) -> str:
 
     # 2) Явно текстовые поля — переводим даже если строка короткая
     if _is_path_force_text(path):
-        return translator.translate(text, target_lang=config.TARGET_LANG)
+        return translator.translate(text)
 
     # 3) Остальное: аккуратная эвристика
 
@@ -159,7 +159,7 @@ def _translate_plain_text(text: str, translator, path: Sequence[str]) -> str:
     if not is_probably_text(text, config.SAFE_MAX_LEN):
         return text
 
-    return translator.translate(text, target_lang=config.TARGET_LANG)
+    return translator.translate(text)
 
 
 # ---------- перевод chat JSON-компонентов ----------

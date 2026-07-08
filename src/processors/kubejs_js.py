@@ -1,7 +1,6 @@
 from __future__ import annotations
 import re
 from ..utils.helpers import ensure_dir_for_file
-from .. import config
 
 # функции/методы, в которых безопасно переводить 1-й строковый аргумент
 _FUNCS = (
@@ -44,13 +43,13 @@ def _translate_literal(m: re.Match, translator) -> str:
     if m.groupdict().get('q'):  # "..." | '...'
         q = m.group('q'); raw = m.group('txt')
         plain = _unescape(raw, q)
-        out = translator.translate(plain, target_lang=config.TARGET_LANG)
+        out = translator.translate(plain)
         return f'{q}{_escape(out, q)}{q}'
     else:                       # `...` без ${}
         raw = m.group('btxt')
         if "${" in raw:
             return f'`{raw}`'
-        out = translator.translate(raw, target_lang=config.TARGET_LANG)
+        out = translator.translate(raw)
         out = out.replace('\\', r'\\').replace('`', r'\`')
         return f'`{out}`'
 

@@ -180,7 +180,12 @@ class Translator:
         complex_client: Optional[LLMClient] = None,
         log: Optional[callable] = None,
         cancel_event: Optional[threading.Event] = None,
+        target_lang: Optional[str] = None,
     ):
+        # P0-3: язык фиксируется ОДИН раз на весь прогон. Воркеры больше не читают
+        # изменяемый глобал config.TARGET_LANG — смена языка в UI во время перевода
+        # не может «расщепить» вывод на два языка.
+        self.target_lang = target_lang or getattr(config, "TARGET_LANG", "ru_ru")
         self.client = client                       # light / simple
         # есть ли ВЫДЕЛЕННЫЙ клиент для сложных строк
         self._has_complex_client = complex_client is not None
@@ -261,14 +266,17 @@ class Translator:
             )
 
     # ---------- одиночная строка ----------
-    def translate(self, text: str, target_lang: str = "ru_ru", client: Optional[LLMClient] = None) -> str:
+    def translate(self, text: str, target_lang: Optional[str] = None, client: Optional[LLMClient] = None) -> str:
         """
         Перевод одной строки.
         - пропускаем уже русские строки
         - пропускаем строки без латиницы (только цифры/символы/плейсхолдеры)
         - используем кэш (с учётом целевого языка — R-3)
         - при ошибке сети / лимита — оставляем исходник
+
+        target_lang=None → снимок языка, зафиксированный на старте прогона (P0-3).
         """
+        target_lang = target_lang or self.target_lang
         if not text:
             return text
 
@@ -307,15 +315,17 @@ class Translator:
         return out
 
     # ---------- пачка строк (с дедупом, чанкингом и фоллбеком) ----------
-    def translate_many(self, texts: List[str], target_lang: str = "ru_ru") -> List[str]:
+    def translate_many(self, texts: List[str], target_lang: Optional[str] = None) -> List[str]:
         """
         Переводит список строк той же длины.
+        target_lang=None → снимок языка прогона (P0-3).
         Алгоритм:
         - снимаем кэш + отбрасываем уже русские и без-латинские строки;
         - длинные/сложные строки → сразу одиночками (translate);
         - остальные — группируем уникальные и шлём батчами;
         - при проблемах с батчем → фоллбек на одиночный перевод строки.
         """
+        target_lang = target_lang or self.target_lang
         n = len(texts)
         results: List[Optional[str]] = [None] * n
 
