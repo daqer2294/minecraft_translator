@@ -75,12 +75,34 @@ def _is_candidate(path_norm: str) -> bool:
     )
 
 
-def _dst_exists(out_root: str, rel: str) -> bool:
+def _cancelled(cancel_event) -> bool:
+    return cancel_event is not None and cancel_event.is_set()
+
+
+def _discard_if_cancelled(dst: str, cancel_event, log: Callable[[str], None]) -> bool:
+    """
+    P0-2: файл мог быть уже «в полёте», когда нажали «Стоп». Тогда translator
+    вернул ИСХОДНИКИ (отмена), и процессор записал непереведённый файл. Такой
+    результат нельзя оставлять в out_root: при следующем запуске _dst_exists
+    посчитал бы его готовым и навсегда пропустил. Удаляем — прогон переделает.
+    """
+    if not _cancelled(cancel_event):
+        return False
+    try:
+        if os.path.exists(dst):
+            os.remove(dst)
+    except OSError:
+        pass
+    log(f"[STOP][discard] {os.path.basename(dst)} — прерван, не сохранён")
+    return True
+
+
+def _dst_exists(out_root: str, rel: str, target_lang: str) -> bool:
     if rel.endswith("/lang/en_us.json"):
-        dst_ru = os.path.join(out_root, os.path.dirname(rel), f"{config.TARGET_LANG}.json")
+        dst_ru = os.path.join(out_root, os.path.dirname(rel), f"{target_lang}.json")
         return os.path.exists(dst_ru)
     if "/patchouli_books/" in rel and "/en_us/" in rel:
-        rel_ru = rel.replace("/en_us/", f"/{config.TARGET_LANG}/")
+        rel_ru = rel.replace("/en_us/", f"/{target_lang}/")
         return os.path.exists(os.path.join(out_root, rel_ru))
     if "/tips/" in rel and rel.endswith(".json"):
         return os.path.exists(os.path.join(out_root, rel))
@@ -98,6 +120,8 @@ def _process_file(
     translator,
     write: bool,
     log: Callable[[str], None],
+    target_lang: str,
+    cancel_event=None,
 ) -> Tuple[bool, bool, bool]:
     """
     Возвращает (matched, ok, skipped)
@@ -105,6 +129,11 @@ def _process_file(
       ok       — обработан без ошибок (включая SKIP как True)
       skipped  — был пропущен из-за уже существующего dst
     """
+    # P0-2: воркер мог быть запущен ДО «Стоп». Проверяем отмену до любой работы и,
+    # главное, до записи на диск — иначе в out_root попадают непереведённые файлы.
+    if _cancelled(cancel_event):
+        return False, False, False
+
     rel = _rel(base_input, src_path)
     path_norm = src_path.replace("\\", "/")
 
@@ -112,24 +141,26 @@ def _process_file(
         return False, False, False
 
     # уже готов — считаем как matched+ok+skipped
-    if write and _dst_exists(out_root, rel):
+    if write and _dst_exists(out_root, rel, target_lang):
         log(f"[SKIP][exists] {rel}")
         return True, True, True
 
     # 1) lang/en_us.json → ru_ru.json
     if _is_lang_en_us(path_norm):
-        dst_ru = os.path.join(out_root, os.path.dirname(rel), f"{config.TARGET_LANG}.json")
+        dst_ru = os.path.join(out_root, os.path.dirname(rel), f"{target_lang}.json")
         try:
             if write:
                 os.makedirs(os.path.dirname(dst_ru), exist_ok=True)
                 lang_json.translate_lang_json(src_path, dst_ru, translator)
+                if _discard_if_cancelled(dst_ru, cancel_event, log):
+                    return False, False, False
                 log(f"[OK][lang] {rel} → {os.path.relpath(dst_ru, out_root)}")
             else:
                 with open(src_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 vals = [v for v in data.values() if isinstance(v, str)]
                 if vals:
-                    translator.translate_many(vals, target_lang=config.TARGET_LANG)
+                    translator.translate_many(vals, target_lang=target_lang)
                 log(f"[DRY][lang] {rel}")
             return True, True, False
         except Exception as e:
@@ -138,12 +169,14 @@ def _process_file(
 
     # 2) patchouli en_us → ru_ru
     if _is_patchouli_json(path_norm):
-        rel_ru = rel.replace("/en_us/", f"/{config.TARGET_LANG}/")
+        rel_ru = rel.replace("/en_us/", f"/{target_lang}/")
         dst_ru = os.path.join(out_root, rel_ru)
         try:
             if write:
                 os.makedirs(os.path.dirname(dst_ru), exist_ok=True)
                 generic_json.translate_generic_json_file(src_path, dst_ru, translator)
+                if _discard_if_cancelled(dst_ru, cancel_event, log):
+                    return False, False, False
                 log(f"[OK][patchouli] {rel} → {rel_ru}")
             else:
                 with open(src_path, "r", encoding="utf-8") as f:
@@ -164,7 +197,7 @@ def _process_file(
 
                 collect(data)
                 if acc:
-                    translator.translate_many(acc, target_lang=config.TARGET_LANG)
+                    translator.translate_many(acc, target_lang=target_lang)
                 log(f"[DRY][patchouli] {rel}")
             return True, True, False
         except Exception as e:
@@ -178,6 +211,8 @@ def _process_file(
             if write:
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 generic_json.translate_generic_json_file(src_path, dst, translator)
+                if _discard_if_cancelled(dst, cancel_event, log):
+                    return False, False, False
                 log(f"[OK][tips] {rel}")
             else:
                 with open(src_path, "r", encoding="utf-8") as f:
@@ -198,7 +233,7 @@ def _process_file(
 
                 collect(data)
                 if acc:
-                    translator.translate_many(acc, target_lang=config.TARGET_LANG)
+                    translator.translate_many(acc, target_lang=target_lang)
                 log(f"[DRY][tips] {rel}")
             return True, True, False
         except Exception as e:
@@ -224,6 +259,8 @@ def _process_file(
                     with open(dst, "w", encoding="utf-8", newline="\n") as f:
                         f.write(out)
                     log(f"[OK][snbt] {rel}")
+                if _discard_if_cancelled(dst, cancel_event, log):
+                    return False, False, False
             else:
                 log(f"[DRY][snbt] {rel}")
             return True, True, False
@@ -238,6 +275,8 @@ def _process_file(
             if write:
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 kubejs_js.translate_kubejs_script_file(src_path, dst, translator)
+                if _discard_if_cancelled(dst, cancel_event, log):
+                    return False, False, False
                 log(f"[OK][kubejs] {rel}")
             else:
                 log(f"[DRY][kubejs] {rel}")
@@ -275,12 +314,19 @@ def mirror_translate_dir(
     write: bool = True,
     on_total: Optional[Callable[[int], None]] = None,
     on_tick: Optional[Callable[[int, int, int, int], None]] = None,  # (done, ok, err, skip)
+    cancel_event=None,
+    target_lang: Optional[str] = None,
 ) -> None:
     """
     Параллельный проход по кандидатам с визуализацией прогресса.
+
+    cancel_event — «Стоп»: отменяет ещё не начатые файлы (они НЕ пишутся в out_root).
+    target_lang  — снимок языка на весь прогон (P0-3); None → берётся из config
+                   один раз здесь, а не читается воркерами на лету.
     """
     base_input = os.path.abspath(os.path.expanduser(base_input))
     out_root = os.path.abspath(out_root)
+    target_lang = target_lang or getattr(config, "TARGET_LANG", "ru_ru")
 
     # Доступ к входной папке — до скана (иначе os.walk молча вернёт пусто).
     _ensure_readable(base_input)
@@ -355,12 +401,24 @@ def mirror_translate_dir(
         if on_tick:
             on_tick(matched_inc, ok_inc, err_inc, skip_inc)
 
-    with ThreadPoolExecutor(max_workers=getattr(config, "MAX_WORKERS_FILES", 6)) as ex:
+    # P0-2: НЕ используем `with ThreadPoolExecutor(...)` — его __exit__ делает
+    # shutdown(wait=True) БЕЗ cancel_futures, из-за чего при «Стоп» вся уже
+    # поставленная очередь всё равно выполнялась и писала непереведённые файлы.
+    # Здесь на выходе (в т.ч. по _StopRequested из on_tick) отменяем всё, что ещё
+    # не начали исполнять.
+    ex = ThreadPoolExecutor(max_workers=getattr(config, "MAX_WORKERS_FILES", 6))
+    try:
         futs = [
-            ex.submit(_process_file, base_input, out_root, p, translator, write, log)
+            ex.submit(
+                _process_file, base_input, out_root, p, translator, write, log,
+                target_lang, cancel_event,
+            )
             for p in candidates
         ]
         for f in as_completed(futs):
+            # отмена без on_tick (напр. CLI): выходим сами
+            if _cancelled(cancel_event):
+                break
             try:
                 m, good, skip = f.result()
             except Exception as e:
@@ -374,12 +432,28 @@ def mirror_translate_dir(
                     tick(1, 0, 1, 0)
             else:
                 tick(1, 0, 0, 0)
+    finally:
+        # cancel_futures=True — ключ к настоящей отмене: задачи, которые ещё не
+        # стартовали, не выполнятся вовсе. Уже бегущие (≤ max_workers) дорабатывают.
+        ex.shutdown(wait=True, cancel_futures=True)
+
+    # Остановлено пользователем — до JAR-ов не идём.
+    if _cancelled(cancel_event):
+        log("[STOP] Остановлено: оставшиеся файлы не обработаны и не записаны.")
+        try:
+            translator.flush()
+        except Exception:
+            pass
+        return
 
     # 4) Последовательно JAR-моды
     # R-1: раньше здесь вызывался несуществующий jar_lang.process_jar(...) с
     #      неправильной сигнатурой → перевод lang внутри .jar всегда падал в
     #      except. Корректная функция — process_jar_lang(jar_path, out_root, ...).
     for jp in jar_ready:
+        if _cancelled(cancel_event):
+            log("[STOP] Остановлено: оставшиеся .jar не обработаны.")
+            break
         try:
             jar_lang.process_jar_lang(
                 jp,
@@ -387,7 +461,7 @@ def mirror_translate_dir(
                 translator,
                 log=log,
                 write=write,
-                target_lang=config.TARGET_LANG,
+                target_lang=target_lang,
             )
             tick(1, 1, 0, 0)
         except Exception as e:
