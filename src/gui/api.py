@@ -93,6 +93,7 @@ class Api:
         self._worker: Optional[threading.Thread] = None
         self._dl_thread: Optional[threading.Thread] = None
         self._dl_cancel: Optional[threading.Event] = None  # отмена активной загрузки
+        self._translate_cancel: Optional[threading.Event] = None  # отмена активного перевода (рвёт HTTP-запрос к модели)
         self._start_time = 0.0
 
         hw = hp.load_cached()
@@ -523,6 +524,9 @@ class Api:
             self._state["skip"] += inc_skip
             done = self._state["done"]
             total = self._state["total"] or 1
+            # пошёл реальный прогресс — убираем подсказку про прогрев модели
+            if done > 0 and self._state.get("message"):
+                self._state["message"] = ""
         elapsed = max(0.001, time.time() - self._start_time) if self._start_time else 0.001
         speed = done / elapsed
         remain = max(0, total - done)
@@ -539,7 +543,10 @@ class Api:
             cfg.external_api_key = config.OPENAI_API_KEY
             cfg.tier = self._state["tier"]
             primary, complex_client = factory.build_clients(cfg)
-            tr = Translator(primary, cache, strict=True, complex_client=complex_client, log=self._log)
+            tr = Translator(
+                primary, cache, strict=True, complex_client=complex_client,
+                log=self._log, cancel_event=self._translate_cancel,
+            )
 
             mirrorer.mirror_translate_dir(
                 inp, out, tr,
@@ -614,7 +621,9 @@ class Api:
 
         # запускаем перевод
         self._control.reset()
-        self._set(running=True, paused=False, phase="translating", message="",
+        self._translate_cancel = threading.Event()  # свежее событие отмены на каждый запуск
+        self._set(running=True, paused=False, phase="translating",
+                  message="Подготовка модели… первый ответ может занять до нескольких минут.",
                   total=0, done=0, ok=0, err=0, skip=0, speed=0.0, eta=0.0)
         self._log(
             f"▶️ Старт: {inp} → {out} | "
@@ -645,5 +654,9 @@ class Api:
     def stop(self) -> Dict[str, Any]:
         if self._state["running"]:
             self._control.stop()
-            self._log("⏹ Остановка (сработает на границе файла)…")
+            # реально рвём активный HTTP-запрос к модели (не ждём границы файла)
+            if self._translate_cancel is not None:
+                self._translate_cancel.set()
+            self._set(message="Останавливаю: прерываю текущий запрос к модели…")
+            self._log("⏹ Остановка: прерываю активный запрос к модели…")
         return self._snapshot()

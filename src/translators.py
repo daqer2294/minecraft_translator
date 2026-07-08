@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 import random
 import urllib.error
 from typing import Optional, List, Tuple, Dict
 
 from .utils.cache import TranslationCache
-from .llm.base import LLMClient, RateLimitError
+from .llm.base import LLMClient, RateLimitError, LLMTimeoutError, LLMCancelledError
 from . import config
 
 # -------- защитные регекспы --------
@@ -178,6 +179,7 @@ class Translator:
         strict: bool = True,
         complex_client: Optional[LLMClient] = None,
         log: Optional[callable] = None,
+        cancel_event: Optional[threading.Event] = None,
     ):
         self.client = client                       # light / simple
         # есть ли ВЫДЕЛЕННЫЙ клиент для сложных строк
@@ -187,6 +189,15 @@ class Translator:
         self.strict = strict
         self._log = log or print
         self._warned_complex_fallback = False
+        self._last_error: Optional[Exception] = None
+        # Событие отмены: прокидывается в client.chat() и рвёт зависший HTTP-запрос
+        # к модели по нажатию «Стоп» (а не ждёт границы файла).
+        self.cancel_event = cancel_event
+        self._warmup_logged = False
+        # Таймауты запроса к модели. Первый запрос к Ollama/локальному серверу
+        # может грузить модель в память (десятки секунд), поэтому щедрые значения.
+        self.single_timeout = float(getattr(config, "LLM_SINGLE_TIMEOUT", 120.0))
+        self.batch_timeout  = float(getattr(config, "LLM_BATCH_TIMEOUT", 180.0))
 
         # Параметры ретраев и batch-а
         self.max_attempts = int(getattr(config, "RETRY_MAX_ATTEMPTS", 6))
@@ -236,6 +247,19 @@ class Translator:
         except Exception:
             pass
 
+    def _cancelled(self) -> bool:
+        return self.cancel_event is not None and self.cancel_event.is_set()
+
+    def _warmup_note(self) -> None:
+        """Одноразовая подсказка перед самым первым запросом к модели: холодный
+        старт (загрузка модели в память) может занять до нескольких минут."""
+        if not self._warmup_logged:
+            self._warmup_logged = True
+            self._log(
+                "⏳ Первый запрос к модели: если она ещё не загружена в память, "
+                "это может занять до нескольких минут…"
+            )
+
     # ---------- одиночная строка ----------
     def translate(self, text: str, target_lang: str = "ru_ru", client: Optional[LLMClient] = None) -> str:
         """
@@ -246,6 +270,10 @@ class Translator:
         - при ошибке сети / лимита — оставляем исходник
         """
         if not text:
+            return text
+
+        # отмена запрошена — не начинаем новых запросов, оставляем исходник
+        if self._cancelled():
             return text
 
         # уже русский без латиницы → не трогаем
@@ -330,6 +358,10 @@ class Translator:
         outputs_for_uniq: Dict[str, str] = {}
 
         for off in range(0, len(uniq_texts), self.batch_size):
+            # отмена во время многострочного перевода — прекращаем, остальные
+            # строки останутся исходными (файл быстро «завершится» → stop сработает)
+            if self._cancelled():
+                break
             chunk = uniq_texts[off : off + self.batch_size]
 
             # попытка батч-запроса с ретраями (массовые строки → основной client)
@@ -341,9 +373,23 @@ class Translator:
                 print(f"[BatchFatal] {e} → fallback to single for this chunk")
                 translated_chunk = None
 
-            # если батч сломался — одиночками
+            # отмена во время батча — оставляем исходники, дальше не идём
+            if self._cancelled():
+                for t in chunk:
+                    outputs_for_uniq.setdefault(t, t)
+                break
+
+            # если батч сломался — одиночками, НО не при таймауте: молчащий сервер
+            # иначе дал бы шторм одиночных ретраев (по timeout на каждую строку).
             if translated_chunk is None or len(translated_chunk) != len(chunk):
-                translated_chunk = [self.translate(t, target_lang) for t in chunk]
+                if isinstance(self._last_error, (LLMTimeoutError, LLMCancelledError)):
+                    self._log(
+                        "⏱ Модель не ответила вовремя — строки этого блока оставлены "
+                        "без перевода (без шторма одиночных запросов)."
+                    )
+                    translated_chunk = list(chunk)  # исходники
+                else:
+                    translated_chunk = [self.translate(t, target_lang) for t in chunk]
 
             # валидация плейсхолдеров + кэш
             for src, out in zip(chunk, translated_chunk):
@@ -370,12 +416,18 @@ class Translator:
     def _retry_call(self, func):
         attempts = 0
         last_err: Optional[Exception] = None
+        self._last_error = None
         while attempts < self.max_attempts:
+            if self._cancelled():
+                break
             attempts += 1
             try:
                 return func()
             except Exception as e:
                 last_err = e
+                # отмена пользователем — не ретраим, выходим немедленно
+                if self._cancelled():
+                    break
                 msg = str(e).lower()
                 is_rate = (
                     isinstance(e, RateLimitError)
@@ -393,6 +445,7 @@ class Translator:
                 print(f"[Retry] attempt {attempts}/{self.max_attempts}, sleep {delay:.1f}s, err={e}")
                 time.sleep(delay)
         if last_err:
+            self._last_error = last_err
             print(f"[TranslateError] giving up after {attempts} attempts: {last_err}")
         return None
 
@@ -411,7 +464,11 @@ class Translator:
             {"role": "system", "content": self._single_system_prompt(target_lang)},
             {"role": "user", "content": text},
         ]
-        out = client.chat(messages, temperature=0, timeout=60)
+        self._warmup_note()
+        out = client.chat(
+            messages, temperature=0,
+            timeout=self.single_timeout, cancel_event=self.cancel_event,
+        )
         return out.strip()
 
     def _request_batch(self, texts: List[str], target_lang: str, client: LLMClient) -> List[str]:
@@ -420,5 +477,9 @@ class Translator:
             {"role": "system", "content": self._batch_system_prompt(target_lang)},
             {"role": "user", "content": user_content},
         ]
-        raw = client.chat(messages, temperature=0, timeout=90)
+        self._warmup_note()
+        raw = client.chat(
+            messages, temperature=0,
+            timeout=self.batch_timeout, cancel_event=self.cancel_event,
+        )
         return _coerce_json_array(raw.strip(), expected_len=len(texts))

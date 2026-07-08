@@ -16,6 +16,15 @@ class RateLimitError(LLMClientError):
     """Провайдер вернул 429 / rate limit. Ретраится в Translator._retry_call."""
 
 
+class LLMTimeoutError(LLMClientError):
+    """Модель не ответила за отведённое время (или запрос завис). НЕ ретраится
+    штормом — иначе зависший сервер даёт минуты фризов на каждую строку."""
+
+
+class LLMCancelledError(LLMClientError):
+    """Запрос к модели прерван пользователем («Стоп»)."""
+
+
 class LLMClient(ABC):
     """
     Единый интерфейс к любому провайдеру перевода.
