@@ -7,7 +7,7 @@ from typing import Callable, Dict, List, Optional
 
 from .. import config
 from ..utils.helpers import parse_lang_bytes
-from .lang_json import keys_to_translate, merge_lang, write_lang
+from .lang_json import keys_to_translate, merge_lang
 
 _LANG_MEMBER = re.compile(r"(assets/[^/]+/lang/)([A-Za-z_]+)\.json$")
 
@@ -25,20 +25,19 @@ def _translate_strings(en: dict, keys: List[str], translator, target_lang: str) 
 
 def process_jar_lang(
     jar_path: str,
-    out_root: str,
+    pack,
     translator,
     log: Callable[[str], None] = print,
     write: bool = True,
     target_lang: Optional[str] = None,
 ) -> int:
     """
-    Ищет внутри JAR файлы assets/**/lang/en_us.json и пишет в out_root перевод только
-    недостающих ключей. Официальный перевод из JAR переносится без изменений.
+    Ищет внутри JAR файлы assets/**/lang/en_us.json и добавляет в ресурспак перевод
+    только недостающих ключей. Официальный перевод из JAR переносится без изменений.
     Возвращает число обработанных файлов.
     """
     target_lang = target_lang or config.TARGET_LANG
     jar_path = os.path.abspath(jar_path)
-    out_root = os.path.abspath(out_root)
     jar_label = os.path.basename(jar_path)
 
     processed = 0
@@ -83,10 +82,9 @@ def process_jar_lang(
                     log(f"[SKIP][nothing-new] {jar_label}:{member}")
                     continue
 
-                jarname = os.path.splitext(jar_label)[0]
-                dst_path = os.path.join(out_root, "jar_lang", jarname, rel_dst)
                 if write:
-                    write_lang(dst_path, merge_lang(en, official, translated))
+                    merged = merge_lang(en, official, translated)
+                    pack.add_lang(rel_dst, merged, [k for k in merged if k in official and k not in translated])
                     log(f"[OK][jar] {jar_label}:{member}: новых {fresh}, официальных {len(en) - len(keys)}")
                 else:
                     log(f"[dry][jar] {jar_label}:{member}: новых {fresh}, официальных {len(en) - len(keys)}")

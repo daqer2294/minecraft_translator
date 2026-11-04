@@ -59,15 +59,16 @@ def make_jar(mods_dir, name, strings):
     path = os.path.join(mods_dir, name)
     with zipfile.ZipFile(path, "w") as z:
         z.writestr(
-            "assets/m/lang/en_us.json",
+            f"assets/{name[:-4]}/lang/en_us.json",
             json.dumps({f"k{i}": f"Hello number {i}" for i in range(strings)}),
         )
     return path
 
 
 def make_loose_lang(base, count, strings=3):
+    # Папка kubejs остаётся на своём пути: отдельные файлы, а не содержимое ресурспака
     for i in range(count):
-        d = os.path.join(base, "assets", f"m{i}", "lang")
+        d = os.path.join(base, "kubejs", "assets", f"m{i}", "lang")
         os.makedirs(d)
         with open(os.path.join(d, "en_us.json"), "w", encoding="utf-8") as f:
             json.dump({f"k{j}": f"Text {i} number {j}" for j in range(strings)}, f)
@@ -94,7 +95,8 @@ class ModsJarDetection(unittest.TestCase):
                 on_total=totals.append, target_lang="ru_ru",
             )
         self.assertEqual(totals, [1])
-        self.assertEqual(len(output_files(out)), 1)
+        with zipfile.ZipFile(os.path.join(out, "MinecraftTranslator_ru_ru.zip")) as z:
+            self.assertIn("assets/a/lang/ru_ru.json", z.namelist())
 
     def test_jar_outside_mods_is_ignored(self):
         base, out = tempfile.mkdtemp(), tempfile.mkdtemp()
@@ -217,25 +219,23 @@ class JarAtStop(unittest.TestCase):
         cancel = threading.Event()
         translator = make_translator(FakeLLM(delay=0.002), cancel_event=cancel)
         ctl = _Control()
+        logs = []
         threading.Timer(0.2, lambda: (ctl.stop(), cancel.set())).start()
         with quiet(), contextlib.suppress(_StopRequested):
             mirrorer.mirror_translate_dir(
-                base, out, translator, log=lambda s: None,
+                base, out, translator, log=logs.append,
                 on_tick=lambda *a: ctl.checkpoint(),
                 cancel_event=cancel, target_lang="ru_ru",
             )
-        return out
+        return out, logs
 
     def test_stop_prevents_starting_next_jars(self):
-        out = self._run()
-        self.assertLess(len(output_files(out)), 3)
+        _, logs = self._run()
+        self.assertLess(sum(line.startswith("[OK][jar]") for line in logs), 3)
 
-    def test_stop_leaves_no_english_in_jar_output(self):
-        out = self._run()
-        for path in output_files(out):
-            with open(path, encoding="utf-8") as f:
-                for value in json.load(f).values():
-                    self.assertTrue(value.startswith("ПЕР "), f"{path}: {value}")
+    def test_stop_writes_no_partial_output(self):
+        out, _ = self._run()
+        self.assertEqual(output_files(out), [])
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from zipfile import ZipFile, BadZipFile
 
 from .processors import lang_json, generic_json, ftb_snbt, kubejs_js, jar_lang
 from .processors.snbt_structured import translate_snbt_file_structured
+from .resource_pack import ResourcePackBuilder
 from .utils.helpers import ensure_dir_for_file
 from . import config
 
@@ -44,6 +45,16 @@ def _ensure_readable(base_input: str) -> None:
             "безопасность → Файлы и папки» (или «Доступ к диску»), либо выберите "
             "папку заново кнопкой «Выбрать…» и повторите."
         ) from e
+
+
+def _goes_to_pack(rel: str) -> bool:
+    """KubeJS читает свою папку assets сам, поэтому его файлы остаются на своём пути."""
+    return not (rel.startswith("kubejs/") or "/kubejs/" in rel)
+
+
+def _pack_rel(path_norm: str) -> str:
+    """Путь внутри ресурспака: от последней папки assets."""
+    return "assets/" + path_norm.rsplit("/assets/", 1)[1]
 
 
 def _is_lang_en_us(path_norm: str) -> bool:
@@ -128,6 +139,9 @@ def _ftb_official_path(src_path: str, path_norm: str, target_lang: str) -> Optio
 
 
 def _dst_exists(out_root: str, rel: str, target_lang: str, path_norm: str) -> bool:
+    # Пак собирается заново при каждом запуске, готовые строки берутся из кэша.
+    if "/assets/" in path_norm and not rel.endswith((".js", ".snbt")) and _goes_to_pack(rel):
+        return False
     if rel.endswith("/lang/en_us.json"):
         dst_ru = os.path.join(out_root, os.path.dirname(rel), f"{target_lang}.json")
         return os.path.exists(dst_ru)
@@ -152,6 +166,7 @@ def _process_file(
     log: Callable[[str], None],
     target_lang: str,
     cancel_event=None,
+    pack: Optional[ResourcePackBuilder] = None,
 ) -> Tuple[bool, bool, bool]:
     """
     Возвращает (matched, ok, skipped)
@@ -181,11 +196,16 @@ def _process_file(
         try:
             if write:
                 official = os.path.join(os.path.dirname(src_path), f"{target_lang}.json")
-                fresh = lang_json.translate_lang_json(src_path, dst_ru, translator, official)
+                merged, fresh, official_keys = lang_json.translate_lang_file(src_path, translator, official)
                 if _discard_if_cancelled(dst_ru, cancel_event, log):
                     return False, False, False
-                if fresh:
-                    log(f"[OK][lang] {rel} → {os.path.relpath(dst_ru, out_root)}: новых {fresh}")
+                if merged is not None:
+                    if _goes_to_pack(rel):
+                        lang_rel = _pack_rel(path_norm).replace("/en_us.json", f"/{target_lang}.json")
+                        pack.add_lang(lang_rel, merged, official_keys)
+                    else:
+                        lang_json.write_lang(dst_ru, merged)
+                    log(f"[OK][lang] {rel}: новых {fresh}")
                 else:
                     log(f"[SKIP][official] {rel}: новых переводов нет")
             else:
@@ -209,11 +229,17 @@ def _process_file(
             return True, True, True
         try:
             if write:
-                os.makedirs(os.path.dirname(dst_ru), exist_ok=True)
-                generic_json.translate_generic_json_file(src_path, dst_ru, translator)
-                if _discard_if_cancelled(dst_ru, cancel_event, log):
-                    return False, False, False
-                log(f"[OK][patchouli] {rel} → {rel_ru}")
+                if _goes_to_pack(rel):
+                    result = generic_json.translate_generic_json(src_path, translator)
+                    if _discard_if_cancelled(dst_ru, cancel_event, log):
+                        return False, False, False
+                    pack.add_json(_pack_rel(path_norm).replace("/en_us/", f"/{target_lang}/"), result)
+                else:
+                    os.makedirs(os.path.dirname(dst_ru), exist_ok=True)
+                    generic_json.translate_generic_json_file(src_path, dst_ru, translator)
+                    if _discard_if_cancelled(dst_ru, cancel_event, log):
+                        return False, False, False
+                log(f"[OK][patchouli] {rel}")
             else:
                 with open(src_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -245,10 +271,16 @@ def _process_file(
         dst = os.path.join(out_root, rel)
         try:
             if write:
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                generic_json.translate_generic_json_file(src_path, dst, translator)
-                if _discard_if_cancelled(dst, cancel_event, log):
-                    return False, False, False
+                if _goes_to_pack(rel):
+                    result = generic_json.translate_generic_json(src_path, translator)
+                    if _discard_if_cancelled(dst, cancel_event, log):
+                        return False, False, False
+                    pack.add_json(_pack_rel(path_norm), result)
+                else:
+                    os.makedirs(os.path.dirname(dst), exist_ok=True)
+                    generic_json.translate_generic_json_file(src_path, dst, translator)
+                    if _discard_if_cancelled(dst, cancel_event, log):
+                        return False, False, False
                 log(f"[OK][tips] {rel}")
             else:
                 with open(src_path, "r", encoding="utf-8") as f:
@@ -433,6 +465,7 @@ def mirror_translate_dir(
     ok = 0
     skipped = 0
     err = 0
+    pack = ResourcePackBuilder(out_root, target_lang) if write else None
 
     # 3) Параллельно обрабатываем кандидатов
     def tick(matched_inc: int, ok_inc: int, err_inc: int, skip_inc: int):
@@ -454,7 +487,7 @@ def mirror_translate_dir(
         futs = [
             ex.submit(
                 _process_file, base_input, out_root, p, translator, write, log,
-                target_lang, cancel_event,
+                target_lang, cancel_event, pack,
             )
             for p in candidates
         ]
@@ -500,7 +533,7 @@ def mirror_translate_dir(
         try:
             jar_lang.process_jar_lang(
                 jp,
-                out_root,
+                pack,
                 translator,
                 log=log,
                 write=write,
@@ -516,6 +549,21 @@ def mirror_translate_dir(
         translator.flush()
     except Exception:
         pass
+
+    # «Стоп» в цикле jar: пак не собираем, повторный запуск возьмёт строки из кэша.
+    if _cancelled(cancel_event):
+        log("[STOP] Ресурспак не собран: запустите перевод снова, готовые строки сохранены в кэше.")
+        return
+
+    if pack is not None:
+        zip_path = pack.finish()
+        if zip_path:
+            s = pack.stats()
+            log(
+                f"[PACK] {zip_path}: lang-файлов {s['lang_files']}, строк {s['strings']}, "
+                f"других файлов {s['other_files']}. Положите zip в папку resourcepacks сборки "
+                f"и включите его в игре. Папки config и kubejs из результата скопируйте в папку сборки."
+            )
 
     status = "DONE (dry-run)" if not write else "DONE"
     log(

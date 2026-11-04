@@ -33,11 +33,14 @@ def _translate_obj(obj: Dict[str, Any], translator):
     return out
 
 
-def translate_generic_json_file(src_path: str, dst_path: str, translator) -> None:
+def translate_generic_json(src_path: str, translator):
     with open(src_path, "r", encoding="utf-8") as f:
         data = json.load(f)
+    return _translate_obj(data, translator)
 
-    result = _translate_obj(data, translator)
+
+def translate_generic_json_file(src_path: str, dst_path: str, translator) -> None:
+    result = translate_generic_json(src_path, translator)
     ensure_dir_for_file(dst_path)
 
     with open(dst_path, "w", encoding="utf-8") as f:

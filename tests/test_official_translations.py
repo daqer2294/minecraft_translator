@@ -56,11 +56,11 @@ def make_jar(base, en, ru=None, ru_raw=None, ru_name="ru_ru.json"):
 
 
 def jar_output(out):
-    path = os.path.join(out, "jar_lang", "x", "assets", "x", "lang", "ru_ru.json")
+    path = os.path.join(out, "MinecraftTranslator_ru_ru.zip")
     if not os.path.exists(path):
         return None
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    with zipfile.ZipFile(path) as z:
+        return json.loads(z.read("assets/x/lang/ru_ru.json"))
 
 
 class JarOfficial(unittest.TestCase):
@@ -75,15 +75,13 @@ class JarOfficial(unittest.TestCase):
         client, _, _ = run(self.base)
         self.assertEqual(sorted(client.sent), ["Copper Ingot", "Gold Ingot", "Tin Ingot"])
 
-    def test_official_values_are_unchanged_and_new_keys_added(self):
+    def test_pack_adds_only_new_keys_and_leaves_official_to_the_jar(self):
         make_jar(self.base, self.EN, self.RU)
         _, out, _ = run(self.base)
         self.assertEqual(jar_output(out), {
-            "a": "Железный слиток (офиц.)",
             "b": "ПЕР Gold Ingot",
             "same": "ПЕР Copper Ingot",
             "gone": "ПЕР Tin Ingot",
-            "only_ru": "Ключ только в ru",
         })
 
     def test_fully_translated_jar_writes_nothing(self):
@@ -98,7 +96,7 @@ class JarOfficial(unittest.TestCase):
                  ru_raw='{\n "a": "Железный слиток",\n}'.encode("utf-8"))
         client, out, _ = run(self.base)
         self.assertEqual(client.sent, ["Gold"])
-        self.assertEqual(jar_output(out)["a"], "Железный слиток")
+        self.assertEqual(jar_output(out), {"b": "ПЕР Gold"})
 
     def test_official_with_bom_is_kept(self):
         make_jar(self.base, {"a": "Iron Ingot"}, ru_raw=b"\xef\xbb\xbf" + '{"a": "Железный слиток"}'.encode("utf-8"))

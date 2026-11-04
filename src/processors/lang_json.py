@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from ..utils.helpers import ensure_dir_for_file, parse_lang_bytes
 
@@ -49,10 +49,12 @@ def read_lang_file(path: str) -> Optional[dict]:
         return parse_lang_bytes(f.read())
 
 
-def translate_lang_json(src_path: str, dst_path: str, translator, official_path: Optional[str] = None) -> int:
+def translate_lang_file(
+    src_path: str, translator, official_path: Optional[str] = None,
+) -> Tuple[Optional[dict], int, List[str]]:
     """
-    lang/en_us.json -> <язык>.json на диске. Возвращает число новых переводов.
-    Без новых переводов файл не создаётся: игра и так возьмёт официальный.
+    Переводит lang/en_us.json. Возвращает (результат, новых переводов, официальные ключи).
+    Без новых переводов результат None: игра и так возьмёт официальный файл.
     """
     en = read_lang_file(src_path)
     if en is None:
@@ -66,16 +68,16 @@ def translate_lang_json(src_path: str, dst_path: str, translator, official_path:
 
     keys = keys_to_translate(en, official)
     if not keys:
-        return 0
+        return None, 0, []
 
     outs = translator.translate_many([en[k] for k in keys])
     translated = dict(zip(keys, outs))
     fresh = sum(translated[k] != en[k] for k in keys)
     if not fresh:
-        return 0
+        return None, 0, []
 
-    write_lang(dst_path, merge_lang(en, official, translated))
-    return fresh
+    merged = merge_lang(en, official, translated)
+    return merged, fresh, [k for k in merged if k in official and k not in translated]
 
 
 def translate_lang_obj(obj: dict, output_path: str, translator) -> None:
