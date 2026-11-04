@@ -369,22 +369,14 @@ def _process_file(
     return False, False, False
 
 
-def _jar_has_lang_en_us(jar_path: str) -> bool:
+def _jar_has_lang_en_us(jar_path: str, include_nested: bool = False) -> bool:
     if not config.SCAN_JAR_LANG:
         return True
     try:
         with ZipFile(jar_path) as zf:
-            for name in zf.namelist():
-                n = name.replace("\\", "/")
-                # ВНУТРИ jar пути идут ОТ КОРНЯ архива: "assets/<ns>/lang/en_us.json"
-                # (без ведущего «/»), поэтому проверка "/assets/" их не находила.
-                if n.endswith("/lang/en_us.json") and (
-                    n.startswith("assets/") or "/assets/" in n
-                ):
-                    return True
+            return jar_lang.jar_has_lang(zf, include_nested)
     except BadZipFile:
         return False
-    return False
 
 
 def mirror_translate_dir(
@@ -455,10 +447,18 @@ def _mirror_translate_dir(
             if _is_candidate(pnorm):
                 candidates.append(full)
 
+    modpack = detect_modpack(base_input)
+    log(f"[PACK-INFO] {modpack.describe()}, формат ресурспака {modpack.pack_format}")
+    for warning in modpack.warnings:
+        log(f"[WARN][pack-info] {warning}")
+    # META-INF/jars читает только загрузчик Fabric (и Quilt). Если загрузчик неизвестен,
+    # такие jar всё равно есть только у модов Fabric, а jarjar NeoForge лежит в другой папке.
+    include_nested = modpack.loader in (None, "fabric", "quilt")
+
     # 2) Предскан JAR'ов
     jar_ready: List[str] = []
     for jp in jar_files:
-        if _jar_has_lang_en_us(jp):
+        if _jar_has_lang_en_us(jp, include_nested):
             jar_ready.append(jp)
 
     total = len(candidates) + len(jar_ready)
@@ -486,10 +486,6 @@ def _mirror_translate_dir(
     ok = 0
     skipped = 0
     err = 0
-    modpack = detect_modpack(base_input)
-    log(f"[PACK-INFO] {modpack.describe()}, формат ресурспака {modpack.pack_format}")
-    for warning in modpack.warnings:
-        log(f"[WARN][pack-info] {warning}")
     pack = ResourcePackBuilder(out_root, target_lang, modpack.pack_format) if write else None
 
     # 3) Параллельно обрабатываем кандидатов
@@ -563,6 +559,7 @@ def _mirror_translate_dir(
                 write=write,
                 target_lang=target_lang,
                 cancel_event=cancel_event,
+                include_nested=include_nested,
             )
         except Exception as e:
             log(f"[ERR][jar] {os.path.basename(jp)}: {_error_text(e)}")
