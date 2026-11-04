@@ -2,9 +2,26 @@
 from __future__ import annotations
 
 import platform
+import threading
 from typing import Any, List, Optional
 
-from .base import LLMClient, Message, LLMClientError
+from .base import LLMCancelledError, LLMClient, LLMClientError, Message
+
+# llama_cpp.Llama не потокобезопасен: параллельные вызовы на Metal роняют весь
+# процесс (SIGABRT/SIGSEGV), а mirrorer обрабатывает файлы в 6 потоков. Замок общий
+# на процесс, потому что GPU один, а гибридный режим может держать два клиента.
+_INFERENCE_LOCK = threading.Lock()
+_LOCK_POLL_SECONDS = 0.1
+
+
+def _acquire_inference_lock(cancel_event) -> None:
+    """Ждёт очередь, не задерживая «Стоп»: отмена снимает и ожидающие потоки."""
+    while not _INFERENCE_LOCK.acquire(timeout=_LOCK_POLL_SECONDS):
+        if cancel_event is not None and cancel_event.is_set():
+            raise LLMCancelledError("Отменено пользователем в очереди к модели")
+    if cancel_event is not None and cancel_event.is_set():
+        _INFERENCE_LOCK.release()
+        raise LLMCancelledError("Отменено пользователем в очереди к модели")
 
 
 def _auto_n_gpu_layers() -> int:
@@ -74,9 +91,8 @@ def _auto_n_gpu_layers() -> int:
 #
 #  2) IN-PROCESS MODE (llama-cpp-python):
 #     грузим модель прямо в процесс через `llama_cpp.Llama`. Проще в дистрибуции
-#     (одно приложение), но: тяжёлая загрузка весов, инференс под GIL —
-#     параллелизм по воркерам эффекта почти не даёт, лучше выставить
-#     MAX_WORKERS_FILES=1. Подходит для одиночной машины/CLI.
+#     (одно приложение), но веса грузятся долго, а вызовы идут строго по одному
+#     через _INFERENCE_LOCK. Подходит для одиночной машины/CLI.
 #
 # STEP 4: сама модель/веса и оптимальные n_ctx/n_gpu_layers подбираются на
 # этапе бенчмарка — здесь только каркас и корректный интерфейс chat().
@@ -204,7 +220,6 @@ class LocalLlamaCppClient(LLMClient):
             return self._ensure_server().chat(messages, **kwargs)
 
         # in-process mode
-        llm = self._ensure_llm()
         params = dict(
             messages=messages,
             temperature=kwargs.get("temperature", self.default_temperature),
@@ -216,7 +231,12 @@ class LocalLlamaCppClient(LLMClient):
         if kwargs.get("response_format") is not None:
             params["response_format"] = kwargs["response_format"]
 
-        resp = llm.create_chat_completion(**params)
+        _acquire_inference_lock(kwargs.get("cancel_event"))
+        try:
+            # Загрузка тоже под замком, иначе холодный старт грузит модель в каждом потоке.
+            resp = self._ensure_llm().create_chat_completion(**params)
+        finally:
+            _INFERENCE_LOCK.release()
         try:
             return resp["choices"][0]["message"]["content"].strip()
         except (KeyError, IndexError, TypeError) as e:
