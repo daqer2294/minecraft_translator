@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from typing import Sequence, Tuple, Optional
 
 import ftb_snbt_lib as slib
@@ -10,6 +11,11 @@ from ftb_snbt_lib.tag import Compound, List as NbtList, String as StringTag
 
 from .. import config
 from ..utils.helpers import ensure_dir_for_file, is_probably_text
+
+# ftb_snbt_lib держит лексер и парсер в глобальном состоянии. Параллельный разбор
+# падает или молча портит результат, поэтому loads/dumps идут по одному. Перевод
+# выполняется вне замка и воркеров не задерживает.
+_SNBT_LOCK = threading.Lock()
 
 # ---------- Minecraft форматирование (§) ----------
 
@@ -316,9 +322,11 @@ def translate_snbt_text_structured(text: str, translator) -> str:
     """
     SNBT → NBT → рекурсивный перевод строк → SNBT.
     """
-    root = slib.loads(text)  # Compound
+    with _SNBT_LOCK:
+        root = slib.loads(text)  # Compound
     root = _translate_nbt_tag(root, translator, path=())
-    return slib.dumps(root, comma_sep=False)
+    with _SNBT_LOCK:
+        return slib.dumps(root, comma_sep=False)
 
 
 def translate_snbt_file_structured(src_path: str, dst_path: str, translator) -> None:
