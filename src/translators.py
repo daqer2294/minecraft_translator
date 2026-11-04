@@ -215,7 +215,6 @@ class Translator:
         self.base_delay   = float(getattr(config, "RETRY_BASE_DELAY", 2.0))
         self.max_delay    = float(getattr(config, "RETRY_MAX_DELAY", 30.0))
         self.jitter       = float(getattr(config, "RETRY_JITTER", 0.25))
-        self.cache_fallbacks = bool(getattr(config, "CACHE_FALLBACKS", True))
         self.batch_size   = int(getattr(config, "BATCH_SIZE", 50))
 
         # Порог "сложной" строки — такие лучше гонять одиночками
@@ -310,16 +309,13 @@ class Translator:
         use_client = client or self._pick_client(text)
         src_tokens = _extract_tokens(text)
         out = self._retry_call(lambda: self._request_single(text, target_lang, use_client))
-        if out is None:
-            out = text  # при окончательной неудаче — исходник
+        # Сбой, отмена, пустой ответ или потерянный плейсхолдер: отдаём исходник
+        if not out or (self.strict and src_tokens != _extract_tokens(out)):
+            return text
 
-        # проверка плейсхолдеров
-        dst_tokens = _extract_tokens(out)
-        if src_tokens != dst_tokens and self.strict:
-            out = text
-
-        # пишем в кэш либо только переводы, либо и фоллбеки (в зависимости от флага)
-        if out != text or self.cache_fallbacks:
+        # В кэш идёт только настоящий перевод, иначе английский останется навсегда:
+        # следующий прогон со здоровой моделью возьмёт его из кэша без запроса.
+        if out != text:
             self.cache.put(text, out, target_lang)
             self.cache.save()
         return out
@@ -413,12 +409,10 @@ class Translator:
 
             # валидация плейсхолдеров + кэш
             for src, out in zip(chunk, translated_chunk):
-                want = src_tokens_ref[src]
-                got  = _extract_tokens(out)
-                if want != got and self.strict:
+                if not out or (self.strict and src_tokens_ref[src] != _extract_tokens(out)):
                     out = src
                 outputs_for_uniq[src] = out
-                if out != src or self.cache_fallbacks:
+                if out != src:
                     self.cache.put(src, out, target_lang)
 
             # периодически сохраняем кэш (дебаунс внутри cache.save)

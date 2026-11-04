@@ -8,7 +8,6 @@ from dataclasses import dataclass
 # ========== Speed knobs / performance ==========
 MAX_WORKERS_FILES = 6          # параллельная обработка файлов
 BATCH_SIZE = 100               # размер пачки строк на 1 запрос
-CACHE_FALLBACKS = True         # использовать кэш переводов
 RETRY_MAX_ATTEMPTS = 6
 RETRY_BASE_DELAY = 2.0
 RETRY_MAX_DELAY = 30.0
