@@ -8,7 +8,7 @@ from typing import Callable, Dict, List, Optional
 
 from .. import config
 from ..utils.helpers import parse_lang_bytes
-from .lang_json import keys_to_translate, merge_lang
+from .lang_json import has_official_translation, keys_to_translate, merge_lang
 
 _LANG_MEMBER = re.compile(r"(assets/[^/]+/lang/)([A-Za-z_]+)\.json$")
 _NESTED_JARS_DIR = "META-INF/jars/"
@@ -94,6 +94,9 @@ def _process_archive(
 
         keys = keys_to_translate(en, official)
         rel_dst = f"{folder}{target_lang}.json"
+        # До любого выхода: другой jar с тем же пространством имён не должен их перекрыть.
+        if write:
+            pack.add_lang(rel_dst, {}, [k for k in en if has_official_translation(k, en, official)])
         if not keys:
             log(f"[SKIP][official] {jar_label}:{member}: всё переведено официально")
             continue

@@ -116,6 +116,31 @@ class NestedLang(unittest.TestCase):
         _, pack, _, _ = run(make_instance("fabric", {"outer.jar": outer}))
         self.assertEqual(pack["assets/shared/lang/ru_ru.json"], {"x": "ПЕР Extra text"})
 
+    def test_official_in_jar_with_nothing_new_still_blocks_nested_copy(self):
+        # Настоящий случай: cloth-config сверху, его старая копия внутри другого мода
+        nested_old = jar_bytes(lang("shared", {"a": "Iron bar", "x": "Extra text"}, {}))
+        fully_official = jar_bytes(lang("shared", {"a": "Iron bar"}, {"a": "Железо"}))
+        for names in (("a.jar", "z.jar"), ("z.jar", "a.jar")):
+            jars = {names[0]: fully_official, names[1]: fabric_jar({"old.jar": nested_old})}
+            _, pack, _, _ = run(make_instance("fabric", jars))
+            self.assertEqual(pack["assets/shared/lang/ru_ru.json"], {"x": "ПЕР Extra text"}, names)
+
+    def test_official_blocks_copy_when_model_adds_nothing_new(self):
+        nested_old = jar_bytes(lang("shared", {"a": "Iron bar"}, {}))
+        with_new_key = jar_bytes(lang("shared", {"a": "Iron bar", "b": "Same text"}, {"a": "Железо"}))
+        jars = {"a.jar": with_new_key, "z.jar": fabric_jar({"old.jar": nested_old})}
+        client = FakeLLM()
+        client_reply = client.chat
+        client.chat = lambda m, **k: "Same text" if m[-1]["content"] == "Same text" else client_reply(m, **k)
+        out = tempfile.mkdtemp()
+        translator = Translator(
+            client, TranslationCache(os.path.join(tempfile.mkdtemp(), "c.json")),
+            strict=True, log=lambda s: None, target_lang="ru_ru",
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            mirrorer.mirror_translate_dir(make_instance("fabric", jars), out, translator, log=lambda s: None, target_lang="ru_ru")
+        self.assertFalse(os.path.exists(os.path.join(out, ZIP_NAME)))
+
     def test_broken_nested_jar_does_not_stop_the_rest(self):
         good = jar_bytes(lang("good", {"k": "Good text"}))
         outer = fabric_jar({"bad.jar": b"not a zip", "good.jar": good})
