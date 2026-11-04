@@ -354,10 +354,12 @@ def _process_file(
         dst = os.path.join(out_root, rel)
         try:
             if write:
-                os.makedirs(os.path.dirname(dst), exist_ok=True)
-                kubejs_js.translate_kubejs_script_file(src_path, dst, translator)
+                changed = kubejs_js.translate_kubejs_script_file(src_path, dst, translator)
                 if _discard_if_cancelled(dst, cancel_event, log):
                     return False, False, False
+                if not changed:
+                    log(f"[SKIP][unchanged] {rel}")
+                    return True, True, True
                 log(f"[OK][kubejs] {rel}")
             else:
                 log(f"[DRY][kubejs] {rel}")

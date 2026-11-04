@@ -84,6 +84,28 @@ class BomFiles(unittest.TestCase):
         self.assertEqual(problems, [])
 
 
+class UnchangedScripts(unittest.TestCase):
+    def test_script_without_text_is_not_copied(self):
+        base, out = tempfile.mkdtemp(), tempfile.mkdtemp()
+        path = os.path.join(base, "kubejs", "server_scripts", "a.js")
+        os.makedirs(os.path.dirname(path))
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("ServerEvents.recipes(event => { event.remove({ id: 'a:b' }) })")
+        translator = Translator(
+            FakeLLM(), TranslationCache(os.path.join(tempfile.mkdtemp(), "c.json")),
+            strict=True, log=lambda s: None, target_lang="ru_ru",
+        )
+        ticks, logs = [], []
+        with contextlib.redirect_stdout(io.StringIO()):
+            mirrorer.mirror_translate_dir(
+                base, out, translator, log=logs.append,
+                on_tick=lambda *a: ticks.append(a), target_lang="ru_ru",
+            )
+        self.assertEqual(os.listdir(out), [])
+        self.assertEqual(ticks, [(1, 0, 0, 1)])
+        self.assertTrue(any(x.startswith("[SKIP][unchanged]") for x in logs))
+
+
 class RunFromRoot(unittest.TestCase):
     """Отдельный процесс: пути считаются при импорте config."""
 

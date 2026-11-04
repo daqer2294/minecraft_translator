@@ -64,14 +64,14 @@ def translate_kubejs_script_text(text: str, translator) -> str:
         return m.group(0)[: m.start('val') - m.start()] + new_lit
     return _CALL_RE.sub(repl, text)
 
-def translate_kubejs_script_file(src: str, dst: str, translator) -> None:
+def translate_kubejs_script_file(src: str, dst: str, translator) -> bool:
+    """Пишет скрипт, только если текст изменился. Возвращает True, если записал."""
     with open(src, "r", encoding="utf-8-sig") as f:
         data = f.read()
     out = translate_kubejs_script_text(data, translator)
+    if out == data:
+        return False
     ensure_dir_for_file(dst)
     with open(dst, "w", encoding="utf-8", newline="\n") as f:
         f.write(out)
-
-# ✅ Алиас под вызов из mirrorer — именно его ищет код
-def process_kubejs_script(src: str, dst: str, translator) -> None:
-    translate_kubejs_script_file(src, dst, translator)
+    return True
