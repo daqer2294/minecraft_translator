@@ -4,6 +4,8 @@ import re
 import json
 from typing import Optional
 
+from .markup import mask
+
 
 # --- Проверка, что строка похожа на текст ---
 RE_NAMESPACE = re.compile(r"[A-Za-z0-9_.-]+:[A-Za-z0-9_.-]+")   # modid:item, namespace:key
@@ -68,9 +70,6 @@ def parse_lang_bytes(raw: bytes) -> Optional[dict]:
 
 
 # --- Что модели отправлять незачем ---
-_RE_MARKUP = re.compile(
-    r"%(?:\d+\$)?-?\d*(?:\.\d+)?[a-zA-Z%]|\{[^{}]*\}|<[^<>]*>|[§&][0-9a-fk-orA-FK-OR]|\\n"
-)
 _RE_URL = re.compile(r"(?:https?://|www\.)\S+")
 _RE_NAMESPACED_ID = re.compile(r"[a-z0-9_.\-]+:[a-z0-9_/.\-]+")
 _RE_TRANSLATION_KEY = re.compile(r"[a-z0-9_]+(?:\.[a-z0-9_]+)+")
@@ -83,7 +82,7 @@ _RE_SINGLE_LETTER = re.compile(r"[A-Za-z]")
 def is_untranslatable(text: str) -> bool:
     """Нет слов для перевода: пустое, только разметка, ссылка, ID, ключ, число с единицей, одна буква."""
     s = text.strip()
-    if not RE_LATIN.search(_RE_MARKUP.sub("", s)):
+    if not RE_LATIN.search(mask(s).core):
         return True
     if _RE_URL.fullmatch(s) or _RE_NAMESPACED_ID.fullmatch(s):
         return True

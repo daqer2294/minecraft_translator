@@ -100,9 +100,9 @@ class CacheFallbacks(unittest.TestCase):
         self.assertEqual(self.cache.get("Good", "ru_ru"), "ПЕР Good")
 
     def test_lost_placeholder_is_not_cached(self):
-        out = self._translator(Scripted(reply=lambda t: "Слиток")).translate("Ingot %s")
-        self.assertEqual(out, "Ingot %s")
-        self._assert_recovers("Ingot %s")
+        out = self._translator(Scripted(reply=lambda t: "Слиток")).translate("Ingot %s here")
+        self.assertEqual(out, "Ingot %s here")
+        self._assert_recovers("Ingot %s here")
 
     def test_answer_equal_to_source_is_not_cached(self):
         self._translator(Scripted(reply=lambda t: t)).translate("Sodium")

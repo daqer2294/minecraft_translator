@@ -11,6 +11,7 @@ from typing import Optional, List, Tuple, Dict
 
 from .utils.cache import TranslationCache
 from .utils.helpers import is_untranslatable
+from .utils.markup import MASK_PROMPT_NOTE, mask, unmask
 from .llm.base import LLMClient, RateLimitError, LLMTimeoutError, LLMCancelledError
 from . import config
 
@@ -327,7 +328,7 @@ class Translator:
         # если клиент не задан явно — выбираем по сложности строки (STEP 5)
         use_client = client or self._pick_client(text)
         src_tokens = _extract_tokens(text)
-        out = self._retry_call(lambda: self._request_single(text, target_lang, use_client))
+        out = self._translate_masked(text, target_lang, use_client)
         # Сбой, отмена, пустой ответ или потерянный плейсхолдер: отдаём исходник
         if not out or (self.strict and src_tokens != _extract_tokens(out)):
             return text
@@ -428,6 +429,9 @@ class Translator:
 
             # валидация плейсхолдеров + кэш
             for src, out in zip(chunk, translated_chunk):
+                # Модель потеряла токен разметки: эту строку спрашиваем отдельно
+                if out is None:
+                    out = self.translate(src, target_lang)
                 if not out or (self.strict and src_tokens_ref[src] != _extract_tokens(out)):
                     out = src
                 outputs_for_uniq[src] = out
@@ -446,6 +450,17 @@ class Translator:
         return [r if r is not None else "" for r in results]
 
     # ---------- механизм ретраев ----------
+    def _translate_masked(self, text: str, target_lang: str, client: LLMClient) -> Optional[str]:
+        """Перевод без разметки в запросе. Если модель потеряла токен, ещё раз целиком."""
+        masked = mask(text)
+        answer = self._retry_call(lambda: self._request_single(masked.core, target_lang, client))
+        if not answer:
+            return None
+        restored = unmask(answer, masked)
+        if restored is not None:
+            return restored
+        return self._retry_call(lambda: self._request_single(text, target_lang, client))
+
     def _retry_call(self, func):
         attempts = 0
         last_err: Optional[Exception] = None
@@ -493,8 +508,9 @@ class Translator:
 
     # ---------- вызовы LLM через клиент ----------
     def _request_single(self, text: str, target_lang: str, client: LLMClient) -> str:
+        # Промпт одинаков для всех строк: иначе модель заново читает его при каждой смене.
         messages = [
-            {"role": "system", "content": self._single_system_prompt(target_lang)},
+            {"role": "system", "content": self._single_system_prompt(target_lang) + MASK_PROMPT_NOTE},
             {"role": "user", "content": text},
         ]
         self._warmup_note()
@@ -506,17 +522,24 @@ class Translator:
         )
         return out.strip()
 
-    def _request_batch(self, texts: List[str], target_lang: str, client: LLMClient) -> List[str]:
-        user_content = json.dumps(texts, ensure_ascii=False)
+    def _request_batch(self, texts: List[str], target_lang: str, client: LLMClient) -> List[Optional[str]]:
+        """Элемент None: модель потеряла токен разметки в этой строке."""
+        masked = [mask(t) for t in texts]
+        cores = [m.core for m in masked]
+        user_content = json.dumps(cores, ensure_ascii=False)
+        system = self._batch_system_prompt(target_lang)
+        if any(m.tokens for m in masked):
+            system += MASK_PROMPT_NOTE
         messages = [
-            {"role": "system", "content": self._batch_system_prompt(target_lang)},
+            {"role": "system", "content": system},
             {"role": "user", "content": user_content},
         ]
         self._warmup_note()
         if self._before_request:
             self._before_request()
         raw = client.chat(
-            messages, temperature=0, max_tokens=_batch_token_cap(texts),
+            messages, temperature=0, max_tokens=_batch_token_cap(cores),
             timeout=self.batch_timeout, cancel_event=self.cancel_event,
         )
-        return _coerce_json_array(raw.strip(), expected_len=len(texts))
+        answers = _coerce_json_array(raw.strip(), expected_len=len(texts))
+        return [unmask(a, m) for a, m in zip(answers, masked)]
