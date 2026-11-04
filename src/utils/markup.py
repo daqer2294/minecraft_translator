@@ -82,6 +82,24 @@ def has_mixed_script_word(text: str) -> bool:
     )
 
 
+# Выдуманный ответ на короткую строку: «PKMNCC» → «Покемонов не существует в Minecraft.»
+# Числа проверены на всём кэше: они ловят все известные случаи без ложных срабатываний.
+HALLUCINATION_MAX_SOURCE_WORDS = 6
+HALLUCINATION_MIN_ANSWER_WORDS = 5
+HALLUCINATION_LENGTH_RATIO = 3
+
+
+def looks_hallucinated(source: str, answer: str) -> bool:
+    """Источник короткий и без разметки, а ответ намного длиннее него. Длинные слова не в счёт: «Custom» → «Персонализированный»."""
+    if MARKUP_RE.search(source):
+        return False
+    return (
+        len(_WORD_RE.findall(source)) <= HALLUCINATION_MAX_SOURCE_WORDS
+        and len(_WORD_RE.findall(MARKUP_RE.sub(" ", answer))) >= HALLUCINATION_MIN_ANSWER_WORDS
+        and len(answer.strip()) > HALLUCINATION_LENGTH_RATIO * len(source.strip())
+    )
+
+
 def mask(text: str) -> MaskedText:
     """Края строки снимаются целиком, разметка внутри заменяется на [[N]]."""
     found = list(MARKUP_RE.finditer(text))

@@ -11,7 +11,15 @@ from typing import Optional, List, Tuple, Dict
 
 from .utils.cache import TranslationCache
 from .utils.helpers import is_untranslatable
-from .utils.markup import MARKUP_RE, MASK_PROMPT_NOTE, MASK_PROMPT_NOTE_RU, has_mixed_script_word, mask, unmask
+from .utils.markup import (
+    MARKUP_RE,
+    MASK_PROMPT_NOTE,
+    MASK_PROMPT_NOTE_RU,
+    has_mixed_script_word,
+    looks_hallucinated,
+    mask,
+    unmask,
+)
 from .utils.prompt_leak import PromptLeakDetector
 from .llm.base import LLMClient, RateLimitError, LLMTimeoutError, LLMCancelledError, LLMTruncatedError
 from . import config
@@ -515,6 +523,7 @@ class Translator:
             or _has_foreign_cjk(out, target_lang)
             or has_mixed_script_word(out)
             or bool(PROMPT_LEAK.explain(out, source))
+            or looks_hallucinated(source, out)
             or (self.strict and src_tokens != _extract_tokens(out))
         )
 
