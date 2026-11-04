@@ -16,11 +16,6 @@ from .llm.base import LLMClient, RateLimitError, LLMTimeoutError, LLMCancelledEr
 from . import config
 
 # -------- защитные регекспы --------
-RE_PLACEHOLDER = re.compile(
-    r"%(?:\d+\$)?-?\d*(?:\.\d+)?[sdifx]|"   # %s, %1$s, %02d
-    r"\{[\w\.]+\}"                          # {count}, {0}, {player.name}
-)
-RE_NAMESPACE = re.compile(r"[A-Za-z0-9_.-]+:[A-Za-z0-9_/.-]+")
 RE_LATIN = re.compile(r"[A-Za-z]")
 RE_CYR   = re.compile(r"[А-Яа-яЁё]")
 # ID объекта FTB Quests ("18E5446B92E771B8") или ссылка на него ("#18E5446B92E771B8")
