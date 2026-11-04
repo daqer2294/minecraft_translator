@@ -121,6 +121,38 @@ class JarOfficial(unittest.TestCase):
         self.assertEqual(jar_output(out), {"a": "ПЕР Iron Ingot"})
 
 
+class ServiceKeys(unittest.TestCase):
+    EN = {
+        "ali/loot_table/chests/underwater_ruin_big": "Underwater Ruin",
+        "mod/loot_tables/x": "Loot text",
+        "__support_shield+": "Shields support",
+        "__comment_jei": "JEI Compat",
+        "real.key": "Iron Ingot",
+        "real/path/key": "Slash key text",
+        "my__key": "Inner underscores",
+    }
+
+    def test_not_sent_and_not_in_pack(self):
+        base = tempfile.mkdtemp()
+        make_jar(base, self.EN)
+        client, out, _ = run(base)
+        self.assertEqual(sorted(client.sent), ["Inner underscores", "Iron Ingot", "Slash key text"])
+        self.assertEqual(sorted(jar_output(out)), ["my__key", "real.key", "real/path/key"])
+
+    def test_loose_file_keeps_official_value_of_such_key(self):
+        base = tempfile.mkdtemp()
+        folder = os.path.join(base, "kubejs", "assets", "x", "lang")
+        os.makedirs(folder)
+        with open(os.path.join(folder, "en_us.json"), "w", encoding="utf-8") as f:
+            json.dump({"__note": "Note text", "a/loot_table/b": "Name", "real.key": "Iron Ingot"}, f)
+        with open(os.path.join(folder, "ru_ru.json"), "w", encoding="utf-8") as f:
+            json.dump({"__note": "Заметка"}, f, ensure_ascii=False)
+        client, out, _ = run(base)
+        self.assertEqual(client.sent, ["Iron Ingot"])
+        with open(os.path.join(out, "kubejs/assets/x/lang/ru_ru.json"), encoding="utf-8") as f:
+            self.assertEqual(json.load(f), {"__note": "Заметка", "real.key": "ПЕР Iron Ingot"})
+
+
 class LooseOfficial(unittest.TestCase):
     def _write(self, name, data):
         d = os.path.join(self.base, "kubejs", "assets", "x", "lang")

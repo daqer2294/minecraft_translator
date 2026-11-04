@@ -13,10 +13,15 @@ def has_official_translation(key: str, en: dict, official: dict) -> bool:
     return key in official and official[key] != en.get(key)
 
 
+def is_service_key(key: str) -> bool:
+    """Служебные ключи: «ali/loot_table/chests/x» и «__support_shield+»."""
+    return key.startswith("__") or "/loot_table/" in key or "/loot_tables/" in key
+
+
 def keys_to_translate(en: dict, official: dict) -> List[str]:
     return [
         k for k, v in en.items()
-        if isinstance(v, str) and not has_official_translation(k, en, official)
+        if isinstance(v, str) and not is_service_key(k) and not has_official_translation(k, en, official)
     ]
 
 
