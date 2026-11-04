@@ -11,7 +11,7 @@ from typing import Optional, List, Tuple, Dict
 
 from .utils.cache import TranslationCache
 from .utils.helpers import is_untranslatable
-from .utils.markup import MASK_PROMPT_NOTE, mask, unmask
+from .utils.markup import MARKUP_RE, MASK_PROMPT_NOTE, mask, unmask
 from .llm.base import LLMClient, RateLimitError, LLMTimeoutError, LLMCancelledError
 from . import config
 
@@ -47,13 +47,10 @@ def _is_bare_id(s: str) -> bool:
 
 
 def _extract_tokens(s: str) -> Tuple[str, ...]:
-    """Достаём плейсхолдеры и namespaced ID из строки."""
+    """Вся разметка строки: она должна совпасть в источнике и переводе, порядок не важен."""
     if not s:
         return tuple()
-    toks: List[str] = []
-    toks.extend(RE_PLACEHOLDER.findall(s))
-    toks.extend(RE_NAMESPACE.findall(s))
-    return tuple(sorted(toks))
+    return tuple(sorted(MARKUP_RE.findall(s)))
 
 
 def _looks_russian_only(s: str) -> bool:
