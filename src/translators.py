@@ -37,6 +37,18 @@ def _batch_token_cap(texts: List[str]) -> int:
     return sum(max(_MIN_BATCH_ITEM_TOKENS, int(len(t) * 1.5)) for t in texts) + _BATCH_OVERHEAD_TOKENS
 
 
+# Иероглифы, кана и хангыль. Модель иногда вставляет их в чужой язык: «Необходимо至少».
+RE_CJK = re.compile("[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]")
+_CJK_LANGUAGES = ("zh", "ja", "ko", "lzh")
+
+
+def _has_foreign_cjk(text: str, target_lang: str) -> bool:
+    """В ответе есть CJK-символы, а целевой язык не китайский, японский или корейский."""
+    if target_lang.lower().split("_")[0] in _CJK_LANGUAGES:
+        return False
+    return RE_CJK.search(text) is not None
+
+
 def _is_bare_id(s: str) -> bool:
     return RE_BARE_ID.fullmatch(s.strip()) is not None
 
@@ -321,8 +333,8 @@ class Translator:
         use_client = client or self._pick_client(text)
         src_tokens = _extract_tokens(text)
         out = self._translate_masked(text, target_lang, use_client)
-        # Сбой, отмена, пустой ответ или потерянный плейсхолдер: отдаём исходник
-        if not out or (self.strict and src_tokens != _extract_tokens(out)):
+        # Сбой, отмена, пустой ответ, потерянный плейсхолдер или иероглифы: отдаём исходник
+        if not out or _has_foreign_cjk(out, target_lang) or (self.strict and src_tokens != _extract_tokens(out)):
             return text
 
         # В кэш идёт только настоящий перевод, иначе английский останется навсегда:
@@ -424,7 +436,8 @@ class Translator:
                 # Модель потеряла токен разметки: эту строку спрашиваем отдельно
                 if out is None:
                     out = self.translate(src, target_lang)
-                if not out or (self.strict and src_tokens_ref[src] != _extract_tokens(out)):
+                if (not out or _has_foreign_cjk(out, target_lang)
+                        or (self.strict and src_tokens_ref[src] != _extract_tokens(out))):
                     out = src
                 outputs_for_uniq[src] = out
                 if out != src:
