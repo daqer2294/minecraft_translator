@@ -11,7 +11,7 @@ from typing import Optional, List, Tuple, Dict
 
 from .utils.cache import TranslationCache
 from .utils.helpers import is_untranslatable
-from .utils.markup import MARKUP_RE, MASK_PROMPT_NOTE, mask, unmask
+from .utils.markup import MARKUP_RE, MASK_PROMPT_NOTE, has_mixed_script_word, mask, unmask
 from .llm.base import LLMClient, RateLimitError, LLMTimeoutError, LLMCancelledError
 from . import config
 
@@ -333,8 +333,8 @@ class Translator:
         use_client = client or self._pick_client(text)
         src_tokens = _extract_tokens(text)
         out = self._translate_masked(text, target_lang, use_client)
-        # Сбой, отмена, пустой ответ, потерянный плейсхолдер или иероглифы: отдаём исходник
-        if not out or _has_foreign_cjk(out, target_lang) or (self.strict and src_tokens != _extract_tokens(out)):
+        # Сбой, отмена, пустой ответ или брак: отдаём исходник
+        if self._answer_rejected(out, src_tokens, target_lang):
             return text
 
         # В кэш идёт только настоящий перевод, иначе английский останется навсегда:
@@ -436,8 +436,7 @@ class Translator:
                 # Модель потеряла токен разметки: эту строку спрашиваем отдельно
                 if out is None:
                     out = self.translate(src, target_lang)
-                if (not out or _has_foreign_cjk(out, target_lang)
-                        or (self.strict and src_tokens_ref[src] != _extract_tokens(out))):
+                if self._answer_rejected(out, src_tokens_ref[src], target_lang):
                     out = src
                 outputs_for_uniq[src] = out
                 if out != src:
@@ -455,6 +454,15 @@ class Translator:
         return [r if r is not None else "" for r in results]
 
     # ---------- механизм ретраев ----------
+    def _answer_rejected(self, out: Optional[str], src_tokens: Tuple[str, ...], target_lang: str) -> bool:
+        """Такой ответ нельзя показывать и кэшировать: в следующий прогон строка спросится снова."""
+        return (
+            not out
+            or _has_foreign_cjk(out, target_lang)
+            or has_mixed_script_word(out)
+            or (self.strict and src_tokens != _extract_tokens(out))
+        )
+
     def _translate_masked(self, text: str, target_lang: str, client: LLMClient) -> Optional[str]:
         """Перевод без разметки в запросе. Если модель потеряла токен, ещё раз целиком."""
         masked = mask(text)

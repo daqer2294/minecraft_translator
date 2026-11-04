@@ -27,6 +27,9 @@ MARKUP_RE = re.compile(
 )
 _MASK_RE = re.compile(r"\[\[\s*(\d+)\s*\]\]")
 _FORMAT_CODE_RE = re.compile(r"[§&][0-9a-fk-orA-FK-OR]")
+_WORD_RE = re.compile(r"[^\W\d_]+")
+_CYRILLIC_RE = re.compile("[\u0400-\u052f]")
+_LATIN_RE = re.compile("[A-Za-z\u00c0-\u024f]")
 
 MASK_PROMPT_NOTE = (
     "\nTokens like [[0]] and [[1]] stand for markup. Keep every one of them exactly once, "
@@ -40,6 +43,18 @@ class MaskedText:
     core: str = ""
     suffix: str = ""
     tokens: List[str] = field(default_factory=list)
+
+
+def has_mixed_script_word(text: str) -> bool:
+    """
+    Есть слово из смеси кириллицы и латиницы: «Мinecraft», «Сила пaddle». Модель так пишет,
+    когда начинает переводить и бросает. Разметка не считается, части через дефис, слэш,
+    апостроф и цифры проверяются отдельно: «X-образный» и «Minecraft'а» в порядке.
+    """
+    return any(
+        _CYRILLIC_RE.search(word) and _LATIN_RE.search(word)
+        for word in _WORD_RE.findall(MARKUP_RE.sub(" ", text))
+    )
 
 
 def mask(text: str) -> MaskedText:
