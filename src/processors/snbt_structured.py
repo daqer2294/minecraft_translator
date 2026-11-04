@@ -33,6 +33,8 @@ _FORCED_TEXT_KEYS = {
     "chapter_title",
 }
 
+_TEXT_COMPONENTS = {"minecraft:custom_name", "minecraft:item_name", "minecraft:lore"}
+
 
 def _split_minecraft_formatting(text: str) -> Tuple[str, str]:
     """
@@ -112,8 +114,21 @@ def _is_path_technical(path: Sequence[str]) -> bool:
         "background",
         "shape",
         "dimension",
+        # ссылки на квесты: изменённый ID рвёт связи в книге
+        "dependencies",
+        "dependency",
+        "linked_quest",
+        "autofocus_id",
+        "click",
+        # команда выполняется игрой, перевод её ломает
+        "command",
     }
     if last_lower in technical_keys:
+        return True
+
+    # Компоненты предметов с пространством имён ("ftbfiltersystem:filter") — данные
+    # мода. Текст среди них только в ванильных имени и описании.
+    if any(":" in seg and seg.lower() not in _TEXT_COMPONENTS for seg in path):
         return True
 
     # спец-кейс FTB Quests: tasks.*.type — это тип задачи, его нельзя переводить

@@ -21,6 +21,12 @@ RE_PLACEHOLDER = re.compile(
 RE_NAMESPACE = re.compile(r"[A-Za-z0-9_.-]+:[A-Za-z0-9_/.-]+")
 RE_LATIN = re.compile(r"[A-Za-z]")
 RE_CYR   = re.compile(r"[А-Яа-яЁё]")
+# ID объекта FTB Quests ("18E5446B92E771B8") или ссылка на него ("#18E5446B92E771B8")
+RE_BARE_ID = re.compile(r"#?[0-9A-Fa-f]{16}")
+
+
+def _is_bare_id(s: str) -> bool:
+    return RE_BARE_ID.fullmatch(s.strip()) is not None
 
 
 def _extract_tokens(s: str) -> Tuple[str, ...]:
@@ -292,6 +298,10 @@ class Translator:
         if not _has_latin(text):
             return text
 
+        # ID не текст. Проверка стоит до кэша, чтобы старая запись его не подменила.
+        if _is_bare_id(text):
+            return text
+
         cached = self.cache.get(text, target_lang)
         if cached is not None:
             return cached
@@ -338,7 +348,7 @@ class Translator:
                 continue
 
             # уже русский и без латиницы
-            if _looks_russian_only(t) or not _has_latin(t):
+            if _looks_russian_only(t) or not _has_latin(t) or _is_bare_id(t):
                 results[i] = t
                 continue
 
