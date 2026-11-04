@@ -14,8 +14,10 @@ import threading
 import zipfile
 from typing import Any, Dict, Iterable, Optional, Set
 
-# 34 — формат ресурспаков Minecraft 1.21 и 1.21.1
-DEFAULT_PACK_FORMAT = 34
+from .modpack_info import DEFAULT_PACK_FORMAT
+
+# С формата 65 (Minecraft 1.21.9) версию пака задают min_format и max_format.
+MIN_MAX_FORMAT_SINCE = 65
 
 
 class ResourcePackBuilder:
@@ -56,12 +58,12 @@ class ResourcePackBuilder:
             self._json[rel] = data
 
     def _mcmeta(self) -> Dict[str, Any]:
-        return {
-            "pack": {
-                "pack_format": self.pack_format,
-                "description": f"Minecraft Translator: {self.target_lang}",
-            }
-        }
+        pack: Dict[str, Any] = {"description": f"Minecraft Translator: {self.target_lang}"}
+        if self.pack_format >= MIN_MAX_FORMAT_SINCE:
+            pack.update(min_format=self.pack_format, max_format=self.pack_format)
+        else:
+            pack["pack_format"] = self.pack_format
+        return {"pack": pack}
 
     def finish(self) -> Optional[str]:
         """Пишет zip атомарно и возвращает путь; None, если добавлять в пак нечего."""

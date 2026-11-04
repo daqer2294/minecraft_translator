@@ -9,6 +9,7 @@ from zipfile import ZipFile, BadZipFile
 
 from .processors import lang_json, generic_json, ftb_snbt, kubejs_js, jar_lang
 from .processors.snbt_structured import translate_snbt_file_structured
+from .modpack_info import detect_modpack
 from .resource_pack import ResourcePackBuilder
 from .utils.helpers import ensure_dir_for_file
 from . import config
@@ -485,7 +486,11 @@ def _mirror_translate_dir(
     ok = 0
     skipped = 0
     err = 0
-    pack = ResourcePackBuilder(out_root, target_lang) if write else None
+    modpack = detect_modpack(base_input)
+    log(f"[PACK-INFO] {modpack.describe()}, формат ресурспака {modpack.pack_format}")
+    for warning in modpack.warnings:
+        log(f"[WARN][pack-info] {warning}")
+    pack = ResourcePackBuilder(out_root, target_lang, modpack.pack_format) if write else None
 
     # 3) Параллельно обрабатываем кандидатов
     def tick(matched_inc: int, ok_inc: int, err_inc: int, skip_inc: int):

@@ -50,7 +50,7 @@ def run(base, write=True):
     logs = []
     with contextlib.redirect_stdout(io.StringIO()):
         mirrorer.mirror_translate_dir(base, tempfile.mkdtemp(), translator, log=logs.append, write=write, target_lang="ru_ru")
-    return client, [x for x in logs if x.startswith(("[ERR", "[WARN", "[LWRN"))]
+    return client, [x for x in logs if x.startswith(("[ERR", "[WARN", "[LWRN")) and "[pack-info]" not in x]
 
 
 class BomFiles(unittest.TestCase):
