@@ -85,6 +85,33 @@ class MaskRoundTrip(unittest.TestCase):
         self.assertEqual(unmask("Раз [[0]] Два", m), "Раз &b Два")
 
 
+class PromptNote(unittest.TestCase):
+    def _prompts(self, text):
+        prompts = []
+
+        class Client:
+            name = "c"
+
+            def chat(self, messages, **kwargs):
+                prompts.append(messages[0]["content"])
+                return "ПЕР " + messages[-1]["content"]
+
+        make_translator(Client()).translate(text)
+        return prompts
+
+    def test_note_only_when_tokens_are_in_the_text(self):
+        self.assertNotIn("[[0]]", self._prompts("Leaves")[0])
+        self.assertNotIn("[[0]]", self._prompts("&aLeaves&r")[0])
+        self.assertNotIn("[[0]]", self._prompts("Hello %s")[0])
+        self.assertIn("[[0]]", self._prompts("One %s two")[0])
+
+    def test_invented_token_is_rejected(self):
+        client = Scripted(lambda t: "[[0]] Листья [[1]]")
+        tr = make_translator(client)
+        self.assertEqual(tr.translate("Leaves"), "Leaves")
+        self.assertIsNone(tr.cache.get("Leaves", "ru_ru"))
+
+
 class TranslatorMasking(unittest.TestCase):
     def test_model_sees_no_markup_and_result_has_it_back(self):
         client = Scripted()

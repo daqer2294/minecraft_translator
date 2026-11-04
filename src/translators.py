@@ -466,7 +466,9 @@ class Translator:
     def _translate_masked(self, text: str, target_lang: str, client: LLMClient) -> Optional[str]:
         """Перевод без разметки в запросе. Если модель потеряла токен, ещё раз целиком."""
         masked = mask(text)
-        answer = self._retry_call(lambda: self._request_single(masked.core, target_lang, client))
+        answer = self._retry_call(
+            lambda: self._request_single(masked.core, target_lang, client, bool(masked.tokens))
+        )
         if not answer:
             return None
         restored = unmask(answer, masked)
@@ -520,10 +522,12 @@ class Translator:
         return _render_prompt(BATCH_SYSTEM_PROMPT_TEMPLATE, target_lang)
 
     # ---------- вызовы LLM через клиент ----------
-    def _request_single(self, text: str, target_lang: str, client: LLMClient) -> str:
-        # Промпт одинаков для всех строк: иначе модель заново читает его при каждой смене.
+    def _request_single(self, text: str, target_lang: str, client: LLMClient, masked: bool = False) -> str:
+        # Пояснение о токенах только там, где они есть: иначе модель выдумывает их сама
+        # («Leaves» → «[[0]] Leafs [[1]]») и чаще оставляет строку непереведённой.
+        system = self._single_system_prompt(target_lang) + (MASK_PROMPT_NOTE if masked else "")
         messages = [
-            {"role": "system", "content": self._single_system_prompt(target_lang) + MASK_PROMPT_NOTE},
+            {"role": "system", "content": system},
             {"role": "user", "content": text},
         ]
         self._warmup_note()
