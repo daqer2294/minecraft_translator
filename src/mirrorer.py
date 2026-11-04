@@ -107,6 +107,11 @@ def _is_candidate(path_norm: str) -> bool:
     )
 
 
+def _error_text(e: Exception) -> str:
+    """У части исключений пустой текст: тогда в логе хотя бы тип."""
+    return str(e) or type(e).__name__
+
+
 def _cancelled(cancel_event) -> bool:
     return cancel_event is not None and cancel_event.is_set()
 
@@ -217,7 +222,7 @@ def _process_file(
                 log(f"[DRY][lang] {rel}")
             return True, True, False
         except Exception as e:
-            log(f"[ERR][lang] {rel}: {e}")
+            log(f"[ERR][lang] {rel}: {_error_text(e)}")
             return True, False, False
 
     # 2) patchouli en_us → ru_ru
@@ -263,7 +268,7 @@ def _process_file(
                 log(f"[DRY][patchouli] {rel}")
             return True, True, False
         except Exception as e:
-            log(f"[ERR][patchouli] {rel}: {e}")
+            log(f"[ERR][patchouli] {rel}: {_error_text(e)}")
             return True, False, False
 
     # 3) tips/*.json → тот же путь
@@ -305,7 +310,7 @@ def _process_file(
                 log(f"[DRY][tips] {rel}")
             return True, True, False
         except Exception as e:
-            log(f"[ERR][tips] {rel}: {e}")
+            log(f"[ERR][tips] {rel}: {_error_text(e)}")
             return True, False, False
 
     # 4) FTB Quests .snbt  — новый структурный перевод + запасной старый
@@ -324,7 +329,7 @@ def _process_file(
                 except Exception as e_struct:
                     if official:
                         # regex-проход не умеет сливать, а затереть готовый перевод нельзя
-                        log(f"[ERR][snbt] {rel}: {e_struct}")
+                        log(f"[ERR][snbt] {rel}: {_error_text(e_struct)}")
                         return True, False, False
                     # запасной вариант — старый regex-проход, чтобы не потерять файл
                     log(f"[WARN][snbt-struct] {rel}: {e_struct} → fallback ftb_snbt")
@@ -340,7 +345,7 @@ def _process_file(
                 log(f"[DRY][snbt] {rel}")
             return True, True, False
         except Exception as e:
-            log(f"[ERR][snbt] {rel}: {e}")
+            log(f"[ERR][snbt] {rel}: {_error_text(e)}")
             return True, False, False
 
     # 5) KubeJS .js
@@ -357,7 +362,7 @@ def _process_file(
                 log(f"[DRY][kubejs] {rel}")
             return True, True, False
         except Exception as e:
-            log(f"[ERR][kubejs] {rel}: {e}")
+            log(f"[ERR][kubejs] {rel}: {_error_text(e)}")
             return True, False, False
 
     return False, False, False
@@ -399,6 +404,21 @@ def mirror_translate_dir(
     target_lang  — снимок языка на весь прогон (P0-3); None → берётся из config
                    один раз здесь, а не читается воркерами на лету.
     """
+    try:
+        _mirror_translate_dir(
+            base_input, out_root, translator, log, write, on_total, on_tick, cancel_event, target_lang,
+        )
+    finally:
+        # При любом выходе, включая _StopRequested из on_tick: сделанное не должно пропасть.
+        try:
+            translator.flush()
+        except Exception:
+            pass
+
+
+def _mirror_translate_dir(
+    base_input, out_root, translator, log, write, on_total, on_tick, cancel_event, target_lang,
+) -> None:
     base_input = os.path.abspath(os.path.expanduser(base_input))
     out_root = os.path.abspath(out_root)
     target_lang = target_lang or getattr(config, "TARGET_LANG", "ru_ru")
@@ -498,12 +518,14 @@ def mirror_translate_dir(
             try:
                 m, good, skip = f.result()
             except Exception as e:
-                log(f"[ERR] worker: {e}")
+                log(f"[ERR] worker: {_error_text(e)}")
                 tick(1, 0, 1, 0)
                 continue
             if m:
-                if good:
-                    tick(1, 1, 0, 1 if skip else 0)
+                if skip:
+                    tick(1, 0, 0, 1)
+                elif good:
+                    tick(1, 1, 0, 0)
                 else:
                     tick(1, 0, 1, 0)
             else:
@@ -516,10 +538,6 @@ def mirror_translate_dir(
     # Остановлено пользователем — до JAR-ов не идём.
     if _cancelled(cancel_event):
         log("[STOP] Остановлено: оставшиеся файлы не обработаны и не записаны.")
-        try:
-            translator.flush()
-        except Exception:
-            pass
         return
 
     # 4) Последовательно JAR-моды
@@ -530,25 +548,25 @@ def mirror_translate_dir(
         if _cancelled(cancel_event):
             log("[STOP] Остановлено: оставшиеся .jar не обработаны.")
             break
+        # tick вне try: он бросает _StopRequested, и это не ошибка обработки jar.
         try:
-            jar_lang.process_jar_lang(
+            worked = jar_lang.process_jar_lang(
                 jp,
                 pack,
                 translator,
                 log=log,
                 write=write,
                 target_lang=target_lang,
+                cancel_event=cancel_event,
             )
-            tick(1, 1, 0, 0)
         except Exception as e:
-            log(f"[ERR][jar] {os.path.basename(jp)}: {e}")
-            tick(1, 0, 1, 0)
-
-    # R-6: гарантируем финальную запись дебаунс-кэша
-    try:
-        translator.flush()
-    except Exception:
-        pass
+            log(f"[ERR][jar] {os.path.basename(jp)}: {_error_text(e)}")
+            result = (1, 0, 1, 0)
+        else:
+            result = (1, 1, 0, 0) if worked else (1, 0, 0, 1)
+        if _cancelled(cancel_event):
+            break
+        tick(*result)
 
     # «Стоп» в цикле jar: пак не собираем, повторный запуск возьмёт строки из кэша.
     if _cancelled(cancel_event):

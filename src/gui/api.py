@@ -29,9 +29,9 @@ class _StopRequested(Exception):
 
 class _Control:
     """
-    Кооперативные пауза/стоп. Backend (mirrorer) не знает про них — мы дёргаем
-    checkpoint() из колбэков log/on_tick, которые mirrorer вызывает на границах
-    файлов. Поэтому пауза/стоп срабатывают не мгновенно, а на ближайшей границе.
+    Кооперативные пауза/стоп. checkpoint() вызывается на границах файлов и бросает
+    _StopRequested. wait_if_paused() Translator вызывает перед каждым запросом к
+    модели, поэтому пауза останавливает новые запросы сразу, а не на границе файла.
     """
 
     def __init__(self):
@@ -58,6 +58,11 @@ class _Control:
             self.stopped = True
             self.paused = False
             self._cv.notify_all()
+
+    def wait_if_paused(self):
+        with self._cv:
+            while self.paused and not self.stopped:
+                self._cv.wait()
 
     def checkpoint(self):
         with self._cv:
@@ -546,7 +551,7 @@ class Api:
             tr = Translator(
                 primary, cache, strict=True, complex_client=complex_client,
                 log=self._log, cancel_event=self._translate_cancel,
-                target_lang=target_lang,
+                target_lang=target_lang, before_request=self._control.wait_if_paused,
             )
 
             mirrorer.mirror_translate_dir(
@@ -558,6 +563,9 @@ class Api:
                 cancel_event=self._translate_cancel,
                 target_lang=target_lang,
             )
+            # Отмена без исключения из on_tick: mirrorer вышел сам, но это не «Готово».
+            if self._translate_cancel is not None and self._translate_cancel.is_set():
+                raise _StopRequested()
             self._set(phase="done", message="")
             self._log(f"✅ Готово. Результат: {out} ({'saved' if write else 'dry-run'})")
         except _StopRequested:
@@ -647,7 +655,7 @@ class Api:
         if self._state["running"]:
             self._control.pause()
             self._set(paused=True)
-            self._log("⏸ Пауза (сработает на границе файла)…")
+            self._log("⏸ Пауза: новые запросы не начнутся, идущие сейчас завершатся.")
         return self._snapshot()
 
     def resume(self) -> Dict[str, Any]:

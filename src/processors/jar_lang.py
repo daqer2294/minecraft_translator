@@ -12,9 +12,11 @@ from .lang_json import keys_to_translate, merge_lang
 _LANG_MEMBER = re.compile(r"(assets/[^/]+/lang/)([A-Za-z_]+)\.json$")
 
 
-def _translate_strings(en: dict, keys: List[str], translator, target_lang: str) -> Dict[str, str]:
+def _translate_strings(en: dict, keys: List[str], translator, target_lang: str, cancel_event) -> Dict[str, str]:
     translated = {}
     for k in keys:
+        if cancel_event is not None and cancel_event.is_set():
+            break
         try:
             translated[k] = translator.translate(en[k], target_lang=target_lang)
         except Exception:
@@ -30,11 +32,13 @@ def process_jar_lang(
     log: Callable[[str], None] = print,
     write: bool = True,
     target_lang: Optional[str] = None,
+    cancel_event=None,
 ) -> int:
     """
     Ищет внутри JAR файлы assets/**/lang/en_us.json и добавляет в ресурспак перевод
     только недостающих ключей. Официальный перевод из JAR переносится без изменений.
-    Возвращает число обработанных файлов.
+    Возвращает число файлов, где понадобился перевод. После «Стоп» недоведённый файл
+    в пак не попадает: готовые строки остаются в кэше.
     """
     target_lang = target_lang or config.TARGET_LANG
     jar_path = os.path.abspath(jar_path)
@@ -75,7 +79,10 @@ def process_jar_lang(
                     log(f"[SKIP][official] {jar_label}:{member}: всё переведено официально")
                     continue
 
-                translated = _translate_strings(en, keys, translator, target_lang)
+                translated = _translate_strings(en, keys, translator, target_lang, cancel_event)
+                if cancel_event is not None and cancel_event.is_set():
+                    log(f"[STOP][discard] {jar_label}:{member}: прерван, в пак не добавлен")
+                    return processed
                 fresh = sum(translated[k] != en[k] for k in keys)
                 processed += 1
                 if not fresh:
@@ -91,7 +98,5 @@ def process_jar_lang(
 
     except zipfile.BadZipFile:
         log(f"[LWRN][jar] {jar_label}: BadZipFile, skip")
-    except Exception as e:
-        log(f"[ERR][jar] {jar_label}: {e}")
 
     return processed

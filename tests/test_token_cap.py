@@ -102,7 +102,7 @@ class InProcessClient(unittest.TestCase):
 
             def create_chat_completion(self, **kwargs):
                 Llama.seen.update(kwargs)
-                return {"choices": [{"message": {"content": "ответ"}, "finish_reason": finish}]}
+                return iter([{"choices": [{"delta": {"content": "ответ"}, "finish_reason": finish}]}])
 
         module.Llama = Llama
         for patcher in (mock.patch.dict(sys.modules, {"llama_cpp": module}),

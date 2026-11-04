@@ -3,9 +3,17 @@ from __future__ import annotations
 
 import platform
 import threading
+import time
 from typing import Any, List, Optional
 
-from .base import LLMCancelledError, LLMClient, LLMClientError, LLMTruncatedError, Message
+from .base import (
+    LLMCancelledError,
+    LLMClient,
+    LLMClientError,
+    LLMTimeoutError,
+    LLMTruncatedError,
+    Message,
+)
 
 # llama_cpp.Llama не потокобезопасен: параллельные вызовы на Metal роняют весь
 # процесс (SIGABRT/SIGSEGV), а mirrorer обрабатывает файлы в 6 потоков. Замок общий
@@ -231,20 +239,45 @@ class LocalLlamaCppClient(LLMClient):
         if kwargs.get("response_format") is not None:
             params["response_format"] = kwargs["response_format"]
 
-        _acquire_inference_lock(kwargs.get("cancel_event"))
+        cancel_event = kwargs.get("cancel_event")
+        timeout = kwargs.get("timeout")
+        _acquire_inference_lock(cancel_event)
         try:
             # Загрузка тоже под замком, иначе холодный старт грузит модель в каждом потоке.
-            resp = self._ensure_llm().create_chat_completion(**params)
+            llm = self._ensure_llm()
+            return self._generate(llm, params, cancel_event, timeout)
         finally:
             _INFERENCE_LOCK.release()
+
+    @staticmethod
+    def _generate(llm, params, cancel_event, timeout) -> str:
+        """
+        Потоковая генерация: «Стоп» и таймаут проверяются на каждом токене и прерывают
+        её сразу. Таймаут считается отсюда: очередь и загрузка модели в него не входят.
+        """
+        started = time.monotonic()
+        parts: List[str] = []
+        finish = None
+        stream = llm.create_chat_completion(stream=True, **params)
         try:
-            choice = resp["choices"][0]
-            content = choice["message"]["content"].strip()
-        except (KeyError, IndexError, TypeError) as e:
-            raise LLMClientError(f"Unexpected llama.cpp response: {str(resp)[:300]}") from e
-        if choice.get("finish_reason") == "length":
+            for chunk in stream:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise LLMCancelledError("Запрос к модели прерван пользователем.")
+                if timeout is not None and time.monotonic() - started > float(timeout):
+                    raise LLMTimeoutError(f"Модель не уложилась в {float(timeout):.0f} c, запрос прерван.")
+                try:
+                    choice = chunk["choices"][0]
+                    parts.append(choice["delta"].get("content") or "")
+                except (KeyError, IndexError, TypeError, AttributeError) as e:
+                    raise LLMClientError(f"Unexpected llama.cpp response: {str(chunk)[:300]}") from e
+                finish = choice.get("finish_reason") or finish
+        finally:
+            close = getattr(stream, "close", None)
+            if close:
+                close()
+        if finish == "length":
             raise LLMTruncatedError("Ответ модели оборван по лимиту токенов.")
-        return content
+        return "".join(parts).strip()
 
     def close(self) -> None:
         # llama_cpp.Llama освобождается сборщиком мусора; явных ресурсов не держим.

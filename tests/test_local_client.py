@@ -31,9 +31,12 @@ class FakeLlama:
             FakeLlama.active += 1
             FakeLlama.peak = max(FakeLlama.peak, FakeLlama.active)
         time.sleep(FakeLlama.delay)
+        return self._reply()
+
+    def _reply(self):
         with FakeLlama.guard:
             FakeLlama.active -= 1
-        return {"choices": [{"message": {"content": "ответ"}}]}
+        yield {"choices": [{"delta": {"content": "ответ"}, "finish_reason": "stop"}]}
 
 
 class LocalClientConcurrency(unittest.TestCase):

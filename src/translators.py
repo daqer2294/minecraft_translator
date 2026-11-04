@@ -203,6 +203,7 @@ class Translator:
         log: Optional[callable] = None,
         cancel_event: Optional[threading.Event] = None,
         target_lang: Optional[str] = None,
+        before_request: Optional[callable] = None,
     ):
         # P0-3: язык фиксируется ОДИН раз на весь прогон. Воркеры больше не читают
         # изменяемый глобал config.TARGET_LANG — смена языка в UI во время перевода
@@ -220,6 +221,8 @@ class Translator:
         # Событие отмены: прокидывается в client.chat() и рвёт зависший HTTP-запрос
         # к модели по нажатию «Стоп» (а не ждёт границы файла).
         self.cancel_event = cancel_event
+        # Вызывается перед каждым запросом к модели: здесь держится пауза.
+        self._before_request = before_request
         self._warmup_logged = False
         # Таймауты запроса к модели. Первый запрос к Ollama/локальному серверу
         # может грузить модель в память (десятки секунд), поэтому щедрые значения.
@@ -495,6 +498,8 @@ class Translator:
             {"role": "user", "content": text},
         ]
         self._warmup_note()
+        if self._before_request:
+            self._before_request()
         out = client.chat(
             messages, temperature=0, max_tokens=_single_token_cap(text),
             timeout=self.single_timeout, cancel_event=self.cancel_event,
@@ -508,6 +513,8 @@ class Translator:
             {"role": "user", "content": user_content},
         ]
         self._warmup_note()
+        if self._before_request:
+            self._before_request()
         raw = client.chat(
             messages, temperature=0, max_tokens=_batch_token_cap(texts),
             timeout=self.batch_timeout, cancel_event=self.cancel_event,
