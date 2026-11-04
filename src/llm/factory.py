@@ -19,6 +19,8 @@ def _make_external(cfg) -> OpenAICompatibleClient:
         base_url=cfg.external_base_url,
         api_key=cfg.external_api_key,
         model=cfg.external_model,
+        # Часть моделей внешнего API отвергает max_tokens с HTTP 400.
+        send_max_tokens=False,
     )
 
 

@@ -19,6 +19,7 @@ from .base import (
     LLMClientError,
     LLMTimeoutError,
     LLMCancelledError,
+    LLMTruncatedError,
 )
 
 
@@ -54,6 +55,7 @@ class OpenAICompatibleClient(LLMClient):
         organization: Optional[str] = None,
         default_temperature: float = 0.0,
         extra_body: Optional[dict] = None,
+        send_max_tokens: bool = True,
     ):
         self.base_url = (base_url or "https://api.openai.com").rstrip("/")
         self.api_key = api_key or ""
@@ -64,6 +66,7 @@ class OpenAICompatibleClient(LLMClient):
         # Доп. поля тела запроса, добавляемые к каждому вызову. Используется, в
         # частности, для prefix/prompt caching у llama-server ({"cache_prompt": true}).
         self.extra_body = dict(extra_body or {})
+        self.send_max_tokens = bool(send_max_tokens)
         self._ssl_ctx = ssl.create_default_context(cafile=certifi.where())
 
     @property
@@ -79,7 +82,7 @@ class OpenAICompatibleClient(LLMClient):
             "messages": messages,
         }
         # опциональные параметры пробрасываем только если заданы
-        if kwargs.get("max_tokens") is not None:
+        if kwargs.get("max_tokens") is not None and self.send_max_tokens:
             payload["max_tokens"] = kwargs["max_tokens"]
         if kwargs.get("top_p") is not None:
             payload["top_p"] = kwargs["top_p"]
@@ -174,6 +177,10 @@ class OpenAICompatibleClient(LLMClient):
 
         try:
             data = json.loads(raw.decode("utf-8"))
-            return data["choices"][0]["message"]["content"].strip()
-        except (KeyError, IndexError, TypeError, ValueError) as e:
+            choice = data["choices"][0]
+            content = choice["message"]["content"].strip()
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError) as e:
             raise LLMClientError(f"Unexpected response schema: {str(raw)[:300]}") from e
+        if choice.get("finish_reason") == "length":
+            raise LLMTruncatedError("Ответ модели оборван по лимиту токенов.")
+        return content

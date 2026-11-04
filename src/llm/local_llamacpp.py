@@ -5,7 +5,7 @@ import platform
 import threading
 from typing import Any, List, Optional
 
-from .base import LLMCancelledError, LLMClient, LLMClientError, Message
+from .base import LLMCancelledError, LLMClient, LLMClientError, LLMTruncatedError, Message
 
 # llama_cpp.Llama не потокобезопасен: параллельные вызовы на Metal роняют весь
 # процесс (SIGABRT/SIGSEGV), а mirrorer обрабатывает файлы в 6 потоков. Замок общий
@@ -238,9 +238,13 @@ class LocalLlamaCppClient(LLMClient):
         finally:
             _INFERENCE_LOCK.release()
         try:
-            return resp["choices"][0]["message"]["content"].strip()
+            choice = resp["choices"][0]
+            content = choice["message"]["content"].strip()
         except (KeyError, IndexError, TypeError) as e:
             raise LLMClientError(f"Unexpected llama.cpp response: {str(resp)[:300]}") from e
+        if choice.get("finish_reason") == "length":
+            raise LLMTruncatedError("Ответ модели оборван по лимиту токенов.")
+        return content
 
     def close(self) -> None:
         # llama_cpp.Llama освобождается сборщиком мусора; явных ресурсов не держим.

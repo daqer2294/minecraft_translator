@@ -21,6 +21,10 @@ class LLMTimeoutError(LLMClientError):
     штормом — иначе зависший сервер даёт минуты фризов на каждую строку."""
 
 
+class LLMTruncatedError(LLMClientError):
+    """Ответ упёрся в лимит токенов: модель зациклилась или ответ оборван."""
+
+
 class LLMCancelledError(LLMClientError):
     """Запрос к модели прерван пользователем («Стоп»)."""
 

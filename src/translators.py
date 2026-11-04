@@ -26,6 +26,21 @@ RE_CYR   = re.compile(r"[А-Яа-яЁё]")
 RE_BARE_ID = re.compile(r"#?[0-9A-Fa-f]{16}")
 
 
+# Лимит ответа. Перевод занимает около 0,5 токена на символ источника, запас почти
+# тройной. Без лимита зациклившаяся модель пишет до конца контекста: минуты на строку.
+_MIN_OUTPUT_TOKENS = 128
+_MIN_BATCH_ITEM_TOKENS = 32
+_BATCH_OVERHEAD_TOKENS = 64
+
+
+def _single_token_cap(text: str) -> int:
+    return max(_MIN_OUTPUT_TOKENS, int(len(text) * 1.5))
+
+
+def _batch_token_cap(texts: List[str]) -> int:
+    return sum(max(_MIN_BATCH_ITEM_TOKENS, int(len(t) * 1.5)) for t in texts) + _BATCH_OVERHEAD_TOKENS
+
+
 def _is_bare_id(s: str) -> bool:
     return RE_BARE_ID.fullmatch(s.strip()) is not None
 
@@ -481,7 +496,7 @@ class Translator:
         ]
         self._warmup_note()
         out = client.chat(
-            messages, temperature=0,
+            messages, temperature=0, max_tokens=_single_token_cap(text),
             timeout=self.single_timeout, cancel_event=self.cancel_event,
         )
         return out.strip()
@@ -494,7 +509,7 @@ class Translator:
         ]
         self._warmup_note()
         raw = client.chat(
-            messages, temperature=0,
+            messages, temperature=0, max_tokens=_batch_token_cap(texts),
             timeout=self.batch_timeout, cancel_event=self.cancel_event,
         )
         return _coerce_json_array(raw.strip(), expected_len=len(texts))
