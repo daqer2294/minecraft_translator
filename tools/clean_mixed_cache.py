@@ -1,6 +1,6 @@
 """
 Удаляет из кэша переводы, которые не проходят текущие проверки ответа модели:
-смесь алфавитов, иероглифы, потеря или искажение разметки и кода.
+смесь алфавитов, иероглифы, текст наших промптов, потеря или искажение разметки и кода.
 
 По умолчанию только показывает, что будет удалено и почему. С --apply делает бэкап
 рядом с кэшем и записывает новый файл. Существующий бэкап не перезаписывается.
@@ -18,11 +18,11 @@ import sys
 from typing import Dict, List, NamedTuple, Optional
 
 from src import config
-from src.translators import _extract_tokens, _has_foreign_cjk, _is_bare_id
+from src.translators import PROMPT_LEAK, _extract_tokens, _has_foreign_cjk, _is_bare_id
 from src.utils.helpers import is_untranslatable
 from src.utils.markup import has_mixed_script_word
 
-BACKUP_SUFFIX = ".before-code-cleanup"
+BACKUP_SUFFIX = ".before-leak-cleanup"
 
 
 class Rejected(NamedTuple):
@@ -43,6 +43,9 @@ def rejection_reason(source: str, value: str, lang: str) -> Optional[str]:
         return "смесь алфавитов"
     if _has_foreign_cjk(value, lang):
         return "иероглифы"
+    leak = PROMPT_LEAK.explain(value, source)
+    if leak:
+        return f"текст промпта: {leak}"
     source_tokens, value_tokens = _extract_tokens(source), _extract_tokens(value)
     if source_tokens != value_tokens:
         lost = sorted(set(source_tokens) - set(value_tokens))

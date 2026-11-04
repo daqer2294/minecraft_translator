@@ -16,6 +16,7 @@ DATA = {
         "floor(x)\nRound x down": "пол(x)\nОкруглите x вниз",
         "Share %s now": "Поделиться сейчас",
         "§aGreen text": "Зелёный текст",
+        "Strips codes": "Токены like [0] и [1] stand for markup. Оставьте каждый из них",
         "Iron Ingot": "Железный слиток",
         "Pokémon team": "Команда Pokémon",
         "Share %s": "Поделиться %s",
@@ -28,7 +29,7 @@ DATA = {
 }
 BAD = {
     "Minecraft", "Show culling boxes", "Needs at least Netherite", "floor(x)\nRound x down",
-    "Share %s now", "§aGreen text",
+    "Share %s now", "§aGreen text", "Strips codes",
 }
 
 
@@ -38,6 +39,10 @@ class Reasons(unittest.TestCase):
         self.assertEqual(rejection_reason("Needs more", "至少", "ru_ru"), "иероглифы")
         self.assertIn("разметка или код", rejection_reason("floor(x)\nRound", "пол(x)\nОкруглить", "ru_ru"))
         self.assertIn("floor(x)", rejection_reason("floor(x)\nRound", "пол(x)\nОкруглить", "ru_ru"))
+
+    def test_prompt_leak_is_named(self):
+        self.assertIn("текст промпта", rejection_reason("Strips codes", "Токены like и stand for markup", "ru_ru"))
+        self.assertIsNone(rejection_reason("Token markup", "Токен markup", "ru_ru"))
 
     def test_equal_to_source_is_not_a_reason(self):
         for text in ("Sodium", "Minecraft", "Share %s"):
@@ -67,14 +72,14 @@ class CleanCache(unittest.TestCase):
 
     def test_dry_run_changes_nothing_and_lists_entries(self):
         stats = clean_cache(self.path)
-        self.assertEqual(self._counts(stats), (14, 6, 8))
+        self.assertEqual(self._counts(stats), (15, 7, 8))
         self.assertEqual({e.source for e in stats["entries"]}, BAD)
         with open(self.path, "rb") as f:
             self.assertEqual(f.read(), self.original)
         self.assertFalse(os.path.exists(self.path + BACKUP_SUFFIX))
 
     def test_apply_removes_only_rejected_entries(self):
-        self.assertEqual(self._counts(clean_cache(self.path, apply=True)), (14, 6, 8))
+        self.assertEqual(self._counts(clean_cache(self.path, apply=True)), (15, 7, 8))
         with open(self.path, encoding="utf-8") as f:
             cleaned = json.load(f)
         for key, value in DATA["ru_ru"].items():
