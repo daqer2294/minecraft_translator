@@ -11,7 +11,8 @@ from typing import Optional, List, Tuple, Dict
 
 from .utils.cache import TranslationCache
 from .utils.helpers import is_untranslatable
-from .utils.markup import MARKUP_RE, MASK_PROMPT_NOTE, has_mixed_script_word, mask, unmask
+from .utils.markup import MARKUP_RE, MASK_PROMPT_NOTE, MASK_PROMPT_NOTE_RU, has_mixed_script_word, mask, unmask
+from .utils.prompt_leak import PromptLeakDetector
 from .llm.base import LLMClient, RateLimitError, LLMTimeoutError, LLMCancelledError, LLMTruncatedError
 from . import config
 
@@ -166,6 +167,16 @@ BATCH_SYSTEM_PROMPT_TEMPLATE = (
     " - Return ONLY a valid JSON array of strings, without any extra commentary.\n"
     "If you are unsure about something, keep it as in the original."
 )
+
+
+# Все тексты, которые модель может пересказать вместо перевода. Новый промпт добавляется сюда.
+PROMPT_TEXTS = (
+    SINGLE_SYSTEM_PROMPT_TEMPLATE,
+    BATCH_SYSTEM_PROMPT_TEMPLATE,
+    MASK_PROMPT_NOTE,
+    MASK_PROMPT_NOTE_RU,
+)
+PROMPT_LEAK = PromptLeakDetector(PROMPT_TEXTS)
 
 
 def _render_prompt(template: str, target_lang: str) -> str:
@@ -370,7 +381,7 @@ class Translator:
         src_tokens = _extract_tokens(text)
         out = self._translate_masked(text, target_lang, use_client)
         # Сбой, отмена, пустой ответ или брак: отдаём исходник
-        if self._answer_rejected(out, src_tokens, target_lang):
+        if self._answer_rejected(out, src_tokens, target_lang, text):
             if self._is_model_fault(out):
                 self._note_rejected(text, target_lang)
             return text
@@ -477,7 +488,7 @@ class Translator:
                 # Модель потеряла токен разметки: эту строку спрашиваем отдельно
                 if out is None:
                     out = self.translate(src, target_lang)
-                if self._answer_rejected(out, src_tokens_ref[src], target_lang):
+                if self._answer_rejected(out, src_tokens_ref[src], target_lang, src):
                     if out != src:
                         self._note_rejected(src, target_lang)
                     out = src
@@ -497,12 +508,13 @@ class Translator:
         return [r if r is not None else "" for r in results]
 
     # ---------- механизм ретраев ----------
-    def _answer_rejected(self, out: Optional[str], src_tokens: Tuple[str, ...], target_lang: str) -> bool:
+    def _answer_rejected(self, out: Optional[str], src_tokens: Tuple[str, ...], target_lang: str, source: str) -> bool:
         """Такой ответ нельзя показывать и кэшировать: в следующий прогон строка спросится снова."""
         return (
             not out
             or _has_foreign_cjk(out, target_lang)
             or has_mixed_script_word(out)
+            or bool(PROMPT_LEAK.explain(out, source))
             or (self.strict and src_tokens != _extract_tokens(out))
         )
 
