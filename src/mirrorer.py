@@ -214,7 +214,7 @@ def _process_file(
                 else:
                     log(f"[SKIP][official] {rel}: новых переводов нет")
             else:
-                with open(src_path, "r", encoding="utf-8") as f:
+                with open(src_path, "r", encoding="utf-8-sig") as f:
                     data = json.load(f)
                 vals = [v for v in data.values() if isinstance(v, str)]
                 if vals:
@@ -246,7 +246,7 @@ def _process_file(
                         return False, False, False
                 log(f"[OK][patchouli] {rel}")
             else:
-                with open(src_path, "r", encoding="utf-8") as f:
+                with open(src_path, "r", encoding="utf-8-sig") as f:
                     data = json.load(f)
 
                 acc: List[str] = []
@@ -288,7 +288,7 @@ def _process_file(
                         return False, False, False
                 log(f"[OK][tips] {rel}")
             else:
-                with open(src_path, "r", encoding="utf-8") as f:
+                with open(src_path, "r", encoding="utf-8-sig") as f:
                     data = json.load(f)
 
                 acc: List[str] = []
@@ -333,7 +333,7 @@ def _process_file(
                         return True, False, False
                     # запасной вариант — старый regex-проход, чтобы не потерять файл
                     log(f"[WARN][snbt-struct] {rel}: {e_struct} → fallback ftb_snbt")
-                    with open(src_path, "r", encoding="utf-8") as f:
+                    with open(src_path, "r", encoding="utf-8-sig") as f:
                         text = f.read()
                     out = ftb_snbt.translate_ftb_snbt_text(text, translator)
                     with open(dst, "w", encoding="utf-8", newline="\n") as f:

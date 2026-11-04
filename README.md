@@ -127,11 +127,6 @@ pip install -r requirements.txt
 python src/main.py
 ```
 
-Старый Tkinter-интерфейс остаётся как запасной вариант:
-```
-python -m src.gui_main_legacy
-```
-
 Готовые сборки собираются в GitHub Actions (Windows и macOS параллельно) —
 [`.github/workflows/build.yml`](.github/workflows/build.yml). Локальная сборка:
 
@@ -184,7 +179,6 @@ CMAKE_ARGS="-DGGML_METAL=on" pip install --no-binary=llama-cpp-python "llama-cpp
 ```
 src/main.py             — точка входа (pywebview GUI)
 src/gui/                — Api-мост + web/ (HTML/CSS/JS фронтенд)
-src/gui_main_legacy.py  — прежний Tkinter GUI (fallback)
 src/llm/                — провайдеры (local llama.cpp / OpenAI-совместимый),
                           реестр моделей, проба железа, загрузчик моделей
 src/processors/         — обработчики форматов (SNBT, lang, Patchouli, KubeJS…)
@@ -312,11 +306,6 @@ pip install -r requirements.txt
 python src/main.py
 ```
 
-The legacy Tkinter UI remains as a fallback:
-```
-python -m src.gui_main_legacy
-```
-
 Prebuilt binaries are produced by GitHub Actions (Windows and macOS in parallel) —
 [`.github/workflows/build.yml`](.github/workflows/build.yml). Local build:
 
@@ -368,7 +357,6 @@ mode needs no key.
 ```
 src/main.py             — entry point (pywebview GUI)
 src/gui/                — Api bridge + web/ (HTML/CSS/JS frontend)
-src/gui_main_legacy.py  — legacy Tkinter GUI (fallback)
 src/llm/                — providers (local llama.cpp / OpenAI-compatible),
                           model registry, hardware probe, model downloader
 src/processors/         — format handlers (SNBT, lang, Patchouli, KubeJS…)

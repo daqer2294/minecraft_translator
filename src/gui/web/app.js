@@ -45,7 +45,6 @@ async function init() {
   if (!data) { _inited = false; return; }  // повторим позже, если API ещё не готов
   OPTIONS = data.options;
   buildLangs(OPTIONS.langs);
-  buildModelSelectors();
   render(data.state);
   wireEvents();
   startPolling();
@@ -60,12 +59,6 @@ function buildLangs(langs) {
     o.textContent = `${l.name} (${l.code})`;
     sel.appendChild(o);
   });
-}
-
-function buildModelSelectors() {
-  // селекторы моделей открываются по кнопке "Сменить модель" — тут храним данные
-  // (в этой версии выбор моделей делаем через тир; смена конкретной модели —
-  //  через set_models, если понадобится расширять UI)
 }
 
 // ---- events ----

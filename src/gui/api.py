@@ -111,7 +111,7 @@ class Api:
             "phase": "idle",          # idle|translating|downloading|done|error|stopped
             "message": "",
             "input": "",
-            "output": os.path.abspath("./out_mirror"),
+            "output": config.DEFAULT_OUTPUT_DIR,
             "dry": True,
             "lang": getattr(config, "TARGET_LANG", "ru_ru"),
             "mode": getattr(config.PROVIDER, "mode", "local"),
@@ -137,6 +137,14 @@ class Api:
         self._log("Готово. Выберите папку модпака и нажмите «Старт».")
 
     # ================= helpers =================
+
+    @staticmethod
+    def resolve_output(path: Optional[str]) -> str:
+        """Папка вывода. Относительный путь считается от домашней папки, а не от рабочей."""
+        path = os.path.expanduser((path or "").strip())
+        if not path:
+            return config.DEFAULT_OUTPUT_DIR
+        return os.path.abspath(os.path.join(os.path.expanduser("~"), path))
 
     def _hw_dict(self, hw) -> Optional[Dict[str, Any]]:
         if hw is None:
@@ -228,7 +236,7 @@ class Api:
         return self._snapshot()
 
     def set_output(self, path: str) -> Dict[str, Any]:
-        self._set(output=(path or "").strip() or os.path.abspath("./out_mirror"))
+        self._set(output=self.resolve_output(path))
         return self._snapshot()
 
     def set_dry(self, value: bool) -> Dict[str, Any]:
@@ -315,15 +323,6 @@ class Api:
         self._set(tier=tier)
         self._refresh_model_status()
         self._log(f"🎚 Тир модели: {tier}")
-        return self._snapshot()
-
-    def set_models(self, light_id: str = "", standard_id: str = "") -> Dict[str, Any]:
-        if light_id and registry.get_by_id(light_id):
-            config.PROVIDER.light_model_id = light_id
-        if standard_id and registry.get_by_id(standard_id):
-            config.PROVIDER.standard_model_id = standard_id
-        self._refresh_model_status()
-        self._log("🧩 Модели обновлены.")
         return self._snapshot()
 
     def set_key(self, key: str) -> Dict[str, Any]:
@@ -587,12 +586,11 @@ class Api:
             self._state["download"]["cancelled"] = False
 
         inp = (self._state["input"] or "").strip()
-        out = (self._state["output"] or "").strip() or os.path.abspath("./out_mirror")
+        out = self.resolve_output(self._state["output"])
         if not inp:
             self._set(message="Укажите входную папку.")
             return self._snapshot()
         inp = os.path.abspath(os.path.expanduser(inp))
-        out = os.path.abspath(os.path.expanduser(out))
         if not os.path.isdir(inp):
             self._set(message=f"Папка не найдена: {inp}")
             return self._snapshot()

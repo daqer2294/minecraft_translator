@@ -35,7 +35,7 @@ def ensure_dir_for_file(path: str):
 # --- Работа с JSON ---
 def read_json(path: str) -> dict:
     """Безопасное чтение JSON."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, "r", encoding="utf-8-sig") as f:
         return json.load(f)
 
 def write_json(path: str, data: dict):

@@ -162,7 +162,9 @@ PROVIDER = ProviderConfig(
 
 
 # ========== Кэш ==========
-DEFAULT_CACHE_PATH = os.environ.get("TRANSLATIONS_CACHE", "translations_cache.json")
+# Абсолютные пути: из Finder рабочая папка равна «/», и относительная запись там падает.
+DEFAULT_CACHE_PATH = os.environ.get("TRANSLATIONS_CACHE") or os.path.join(APP_DATA_DIR, "translations_cache.json")
+DEFAULT_OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "MinecraftTranslator")
 
 # ========== Эвристики ==========
 SAFE_MAX_LEN = 800                   # максимум длины строки, которую считаем «текстом»

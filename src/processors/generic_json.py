@@ -34,7 +34,7 @@ def _translate_obj(obj: Dict[str, Any], translator):
 
 
 def translate_generic_json(src_path: str, translator):
-    with open(src_path, "r", encoding="utf-8") as f:
+    with open(src_path, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
     return _translate_obj(data, translator)
 

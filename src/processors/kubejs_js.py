@@ -65,7 +65,7 @@ def translate_kubejs_script_text(text: str, translator) -> str:
     return _CALL_RE.sub(repl, text)
 
 def translate_kubejs_script_file(src: str, dst: str, translator) -> None:
-    with open(src, "r", encoding="utf-8") as f:
+    with open(src, "r", encoding="utf-8-sig") as f:
         data = f.read()
     out = translate_kubejs_script_text(data, translator)
     ensure_dir_for_file(dst)
