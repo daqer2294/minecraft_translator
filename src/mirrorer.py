@@ -2,6 +2,7 @@
 from __future__ import annotations
 import os
 import json
+import re
 from typing import Callable, List, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from zipfile import ZipFile, BadZipFile
@@ -10,6 +11,11 @@ from .processors import lang_json, generic_json, ftb_snbt, kubejs_js, jar_lang
 from .processors.snbt_structured import translate_snbt_file_structured
 from .utils.helpers import ensure_dir_for_file
 from . import config
+
+
+# Локаль FTB Quests: lang/en_us.snbt или lang/en_us/chapters/x.snbt
+_FTB_LANG_RE = re.compile(r"/ftbquests/(?:[^/]+/)*?lang/([A-Za-z]{2,3}_[A-Za-z]{2,4})(?=\.snbt$|/)")
+_FTB_SOURCE_LOCALE = "en_us"
 
 
 def _rel(base: str, p: str) -> str:
@@ -58,7 +64,22 @@ def _is_tips_json(path_norm: str) -> bool:
 
 
 def _want_ftb_snbt(path_norm: str) -> bool:
-    return "/ftbquests/" in path_norm and path_norm.endswith(".snbt")
+    if "/ftbquests/" not in path_norm or not path_norm.endswith(".snbt"):
+        return False
+    # Источник перевода только en_us: чужие локали и готовый перевод сборки не трогаем.
+    locale = _FTB_LANG_RE.search(path_norm)
+    return locale is None or locale.group(1).lower() == _FTB_SOURCE_LOCALE
+
+
+def _ftb_dst_rel(rel: str, path_norm: str, target_lang: str) -> str:
+    """lang/en_us... → lang/<target_lang>...; остальные .snbt сохраняют свой путь."""
+    locale = _FTB_LANG_RE.search(path_norm)
+    if locale is None:
+        return rel
+    start = locale.start(1) - (len(path_norm) - len(rel))
+    if start < 0:  # выбрана сама папка en_us: имени локали в относительном пути нет
+        return rel
+    return rel[:start] + target_lang + rel[locale.end(1) - (len(path_norm) - len(rel)):]
 
 
 def _want_kubejs_js(path_norm: str) -> bool:
@@ -97,7 +118,7 @@ def _discard_if_cancelled(dst: str, cancel_event, log: Callable[[str], None]) ->
     return True
 
 
-def _dst_exists(out_root: str, rel: str, target_lang: str) -> bool:
+def _dst_exists(out_root: str, rel: str, target_lang: str, path_norm: str) -> bool:
     if rel.endswith("/lang/en_us.json"):
         dst_ru = os.path.join(out_root, os.path.dirname(rel), f"{target_lang}.json")
         return os.path.exists(dst_ru)
@@ -107,7 +128,7 @@ def _dst_exists(out_root: str, rel: str, target_lang: str) -> bool:
     if "/tips/" in rel and rel.endswith(".json"):
         return os.path.exists(os.path.join(out_root, rel))
     if rel.endswith(".snbt"):
-        return os.path.exists(os.path.join(out_root, rel))
+        return os.path.exists(os.path.join(out_root, _ftb_dst_rel(rel, path_norm, target_lang)))
     if rel.endswith(".js"):
         return os.path.exists(os.path.join(out_root, rel))
     return False
@@ -141,7 +162,7 @@ def _process_file(
         return False, False, False
 
     # уже готов — считаем как matched+ok+skipped
-    if write and _dst_exists(out_root, rel, target_lang):
+    if write and _dst_exists(out_root, rel, target_lang, path_norm):
         log(f"[SKIP][exists] {rel}")
         return True, True, True
 
@@ -242,7 +263,7 @@ def _process_file(
 
     # 4) FTB Quests .snbt  — новый структурный перевод + запасной старый
     if _want_ftb_snbt(path_norm):
-        dst = os.path.join(out_root, rel)
+        dst = os.path.join(out_root, _ftb_dst_rel(rel, path_norm, target_lang))
         try:
             if write:
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
