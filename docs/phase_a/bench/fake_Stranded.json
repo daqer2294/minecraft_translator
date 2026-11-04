@@ -1,0 +1,66 @@
+{
+"pack": "Stranded",
+"total_files": 195,
+"wall_s": 2.5,
+"single_requests": 30808,
+"batch_requests": 0,
+"batch_items": 0,
+"avg_batch": 0.0,
+"prompt_chars": 16995199,
+"peak_conc": 1,
+"threads": 7,
+"ticks": 195,
+"cache_entries": 30808,
+"log_kinds": [
+[
+"[OK][jar]",
+118
+],
+[
+"[OK][kubejs]",
+50
+],
+[
+"[OK][snbt-struct]",
+25
+],
+[
+"[WARN][snbt-struct]",
+3
+],
+[
+"[OK][snbt]",
+3
+]
+],
+"errors": 3,
+"err_samples": [
+"[WARN][snbt-struct] config/ftbquests/quests/chapters/create.snbt: 'NoneType' object has no attribute 'value' → fallback ftb_snbt",
+"[WARN][snbt-struct] config/ftbquests/quests/chapters/create_northstar.snbt: 'NoneType' object has no attribute 'value' → fallback ftb_snbt",
+"[WARN][snbt-struct] config/ftbquests/quests/chapters/simply_swords.snbt: 'NoneType' object has no attribute 'value' → fallback ftb_snbt"
+],
+"outfiles": [
+[
+"jar_lang/*.json",
+118
+],
+[
+"kubejs/*.js",
+50
+],
+[
+"config/*.snbt",
+28
+]
+],
+"ftb_lang_out_sample": [
+"config/ftbquests/quests/lang/en_us.snbt"
+],
+"ftb_lang_out_locales": [
+[
+"en_us.snbt",
+1
+]
+],
+"out_mb": 3.5
+}

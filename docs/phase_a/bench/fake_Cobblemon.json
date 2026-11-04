@@ -1,0 +1,37 @@
+{
+"pack": "Cobblemon",
+"total_files": 49,
+"wall_s": 0.8,
+"single_requests": 15520,
+"batch_requests": 0,
+"batch_items": 0,
+"avg_batch": 0.0,
+"prompt_chars": 8763302,
+"peak_conc": 1,
+"threads": 1,
+"ticks": 49,
+"cache_entries": 15520,
+"log_kinds": [
+[
+"[OK][jar]",
+48
+],
+[
+"[LWRN][jar]",
+1
+]
+],
+"errors": 1,
+"err_samples": [
+"[LWRN][jar] sodiumleafculling-fabric-1.0.1-1.21.1.jar:assets/sodiumleafculling/lang/en_us.json: bad json: Unexpected UTF-8 BOM (decode using utf-8-sig): line 1 column 1 ("
+],
+"outfiles": [
+[
+"jar_lang/*.json",
+48
+]
+],
+"ftb_lang_out_sample": [],
+"ftb_lang_out_locales": [],
+"out_mb": 1.7
+}
