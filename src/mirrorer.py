@@ -118,6 +118,15 @@ def _discard_if_cancelled(dst: str, cancel_event, log: Callable[[str], None]) ->
     return True
 
 
+def _ftb_official_path(src_path: str, path_norm: str, target_lang: str) -> Optional[str]:
+    """Готовый перевод этого файла в самой сборке: lang/en_us... → lang/<target_lang>..."""
+    locale = _FTB_LANG_RE.search(path_norm)
+    if locale is None or locale.group(1).lower() != _FTB_SOURCE_LOCALE:
+        return None
+    candidate = path_norm[:locale.start(1)] + target_lang + path_norm[locale.end(1):]
+    return candidate if os.path.isfile(candidate) else None
+
+
 def _dst_exists(out_root: str, rel: str, target_lang: str, path_norm: str) -> bool:
     if rel.endswith("/lang/en_us.json"):
         dst_ru = os.path.join(out_root, os.path.dirname(rel), f"{target_lang}.json")
@@ -171,11 +180,14 @@ def _process_file(
         dst_ru = os.path.join(out_root, os.path.dirname(rel), f"{target_lang}.json")
         try:
             if write:
-                os.makedirs(os.path.dirname(dst_ru), exist_ok=True)
-                lang_json.translate_lang_json(src_path, dst_ru, translator)
+                official = os.path.join(os.path.dirname(src_path), f"{target_lang}.json")
+                fresh = lang_json.translate_lang_json(src_path, dst_ru, translator, official)
                 if _discard_if_cancelled(dst_ru, cancel_event, log):
                     return False, False, False
-                log(f"[OK][lang] {rel} → {os.path.relpath(dst_ru, out_root)}")
+                if fresh:
+                    log(f"[OK][lang] {rel} → {os.path.relpath(dst_ru, out_root)}: новых {fresh}")
+                else:
+                    log(f"[SKIP][official] {rel}: новых переводов нет")
             else:
                 with open(src_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
@@ -192,6 +204,9 @@ def _process_file(
     if _is_patchouli_json(path_norm):
         rel_ru = rel.replace("/en_us/", f"/{target_lang}/")
         dst_ru = os.path.join(out_root, rel_ru)
+        if os.path.isfile(src_path.replace("/en_us/", f"/{target_lang}/")):
+            log(f"[SKIP][official] {rel}: страница уже переведена")
+            return True, True, True
         try:
             if write:
                 os.makedirs(os.path.dirname(dst_ru), exist_ok=True)
@@ -267,11 +282,18 @@ def _process_file(
         try:
             if write:
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
+                official = _ftb_official_path(src_path, path_norm, target_lang)
                 try:
                     # новый путь: SNBT → NBT → рекурсивный перевод → SNBT
-                    translate_snbt_file_structured(src_path, dst, translator)
+                    if not translate_snbt_file_structured(src_path, dst, translator, official):
+                        log(f"[SKIP][official] {rel}: всё переведено официально")
+                        return True, True, True
                     log(f"[OK][snbt-struct] {rel}")
                 except Exception as e_struct:
+                    if official:
+                        # regex-проход не умеет сливать, а затереть готовый перевод нельзя
+                        log(f"[ERR][snbt] {rel}: {e_struct}")
+                        return True, False, False
                     # запасной вариант — старый regex-проход, чтобы не потерять файл
                     log(f"[WARN][snbt-struct] {rel}: {e_struct} → fallback ftb_snbt")
                     with open(src_path, "r", encoding="utf-8") as f:

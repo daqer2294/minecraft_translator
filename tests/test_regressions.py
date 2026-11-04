@@ -230,8 +230,7 @@ class JarAtStop(unittest.TestCase):
         out = self._run()
         self.assertLess(len(output_files(out)), 3)
 
-    @unittest.expectedFailure  # Известная дыра, закрывается пунктом 7 фазы B.
-    def test_stop_leaves_no_partially_translated_jar(self):
+    def test_stop_leaves_no_english_in_jar_output(self):
         out = self._run()
         for path in output_files(out):
             with open(path, encoding="utf-8") as f:

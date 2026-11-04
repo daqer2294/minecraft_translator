@@ -10,6 +10,7 @@ import urllib.error
 from typing import Optional, List, Tuple, Dict
 
 from .utils.cache import TranslationCache
+from .utils.helpers import is_untranslatable
 from .llm.base import LLMClient, RateLimitError, LLMTimeoutError, LLMCancelledError
 from . import config
 
@@ -297,8 +298,8 @@ class Translator:
         if not _has_latin(text):
             return text
 
-        # ID не текст. Проверка стоит до кэша, чтобы старая запись его не подменила.
-        if _is_bare_id(text):
+        # ID и прочее без слов. Проверка стоит до кэша, чтобы старая запись их не подменила.
+        if _is_bare_id(text) or is_untranslatable(text):
             return text
 
         cached = self.cache.get(text, target_lang)
@@ -344,7 +345,7 @@ class Translator:
                 continue
 
             # уже русский и без латиницы
-            if _looks_russian_only(t) or not _has_latin(t) or _is_bare_id(t):
+            if _looks_russian_only(t) or not _has_latin(t) or _is_bare_id(t) or is_untranslatable(t):
                 results[i] = t
                 continue
 
