@@ -137,9 +137,14 @@ def _is_path_technical(path: Sequence[str]) -> bool:
     if any(":" in seg and seg.lower() not in _TEXT_COMPONENTS for seg in path):
         return True
 
-    # спец-кейс FTB Quests: tasks.*.type — это тип задачи, его нельзя переводить
-    if last_lower == "type":
-        if any(seg.lower() == "tasks" for seg in path):
+    lowered = [seg.lower() for seg in path]
+    if "tasks" in lowered:
+        # спец-кейс FTB Quests: tasks.*.type — это тип задачи, его нельзя переводить
+        if last_lower == "type":
+            return True
+        # Предмет в задании — то, с чем квест сравнивает предмет игрока. Перевод его
+        # имени может сломать выполнение (в игре не проверялось, это предосторожность).
+        if "item" in lowered or "items" in lowered:
             return True
 
     return False

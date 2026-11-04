@@ -19,15 +19,20 @@ CHAPTER = """{
         linked_quest: "196312DF0D2E2CB6"
         autofocus_id: "1C232674CD04024D"
         description: ["Real quest description"]
-        rewards: [{ command: "/say The nether is disabled" }]
+        rewards: [{
+            command: "/say The nether is disabled"
+            item: { components: { "minecraft:custom_name": "Sword of Testing" } }
+        }]
         tasks: [{
             item: {
                 components: {
                     "ftbfiltersystem:filter": "or(mod(transfer_labels))"
                     "occultism:spirit_name": "Grimzirryne"
-                    "minecraft:custom_name": "Sword of Testing"
+                    "minecraft:custom_name": "Task item name"
+                    "minecraft:lore": ["Task item lore"]
                 }
             }
+            title: "Task title"
         }]
     }]
 }"""
@@ -58,14 +63,14 @@ class ChapterFields(unittest.TestCase):
     def test_only_real_text_is_sent_to_the_model(self):
         self.assertEqual(
             sorted(self.client.sent),
-            ["Real chapter title", "Real quest description", "Sword of Testing"],
+            ["Real chapter title", "Real quest description", "Sword of Testing", "Task title"],
         )
 
     def test_technical_values_survive_unchanged(self):
         for value in (
             "0D595252CB72400E", "129E0E2085D16CB5", "396CEB9D05700927", "196312DF0D2E2CB6",
             "1C232674CD04024D", "/say The nether is disabled", "or(mod(transfer_labels))",
-            "Grimzirryne",
+            "Grimzirryne", "Task item name", "Task item lore",
         ):
             self.assertIn(f'"{value}"', self.output)
 
