@@ -140,6 +140,11 @@ class ProviderConfig:
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = ""           # имя выбранной модели, напр. "qwen2.5:3b"
 
+    # Сильная модель второго прохода: переводит только строки, где основная дала брак.
+    # Имя модели в Ollama. Если её нет, берётся скачанный Standard, если нет и его,
+    # проход пропускается. "off" отключает проход. Ничего не скачивается само.
+    strong_model: str = os.environ.get("TRANSLATOR_STRONG_MODEL", "llama3.1:8b-instruct-q4_K_M")
+
     # авто-выбор модели по железу (STEP 1-2) + двумерный роутинг (STEP 5)
     tier: str = "light"          # выбранный тир железа: "light" | "standard"
     light_model_id: str = ""     # id из model_registry (пусто → default_for_tier("light"))

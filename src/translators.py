@@ -12,7 +12,7 @@ from typing import Optional, List, Tuple, Dict
 from .utils.cache import TranslationCache
 from .utils.helpers import is_untranslatable
 from .utils.markup import MARKUP_RE, MASK_PROMPT_NOTE, has_mixed_script_word, mask, unmask
-from .llm.base import LLMClient, RateLimitError, LLMTimeoutError, LLMCancelledError
+from .llm.base import LLMClient, RateLimitError, LLMTimeoutError, LLMCancelledError, LLMTruncatedError
 from . import config
 
 # -------- защитные регекспы --------
@@ -222,7 +222,13 @@ class Translator:
         self.strict = strict
         self._log = log or print
         self._warned_complex_fallback = False
-        self._last_error: Optional[Exception] = None
+        # Ошибка последнего запроса своя у каждого потока: воркеры не мешают друг другу.
+        self._thread_state = threading.local()
+        # Строки, где модель ответила браком: их переводит второй проход.
+        self._rejected: Dict[Tuple[str, str], None] = {}
+        self._rejected_lock = threading.Lock()
+        # Только кэш, без запросов: для пересборки вывода после второго прохода.
+        self.cache_only = False
         # Событие отмены: прокидывается в client.chat() и рвёт зависший HTTP-запрос
         # к модели по нажатию «Стоп» (а не ждёт границы файла).
         self.cancel_event = cancel_event
@@ -248,6 +254,34 @@ class Translator:
             self.cache.load()
         except Exception:
             pass
+
+    @property
+    def _last_error(self) -> Optional[Exception]:
+        return getattr(self._thread_state, "last_error", None)
+
+    @_last_error.setter
+    def _last_error(self, error: Optional[Exception]) -> None:
+        self._thread_state.last_error = error
+
+    def take_rejected(self) -> List[Tuple[str, str]]:
+        """Отдаёт накопленные (строка, язык) с браком модели и очищает список."""
+        with self._rejected_lock:
+            items = list(self._rejected)
+            self._rejected.clear()
+        return items
+
+    def _note_rejected(self, text: str, target_lang: str) -> None:
+        with self._rejected_lock:
+            self._rejected[(text, target_lang)] = None
+
+    def _is_model_fault(self, out: Optional[str]) -> bool:
+        """Брак самой модели. Обрыв связи, таймаут и «Стоп» сюда не входят."""
+        if out:
+            return True
+        if self._cancelled():
+            return False
+        error = self._last_error
+        return error is None or isinstance(error, LLMTruncatedError)
 
     @property
     def hybrid(self) -> bool:
@@ -328,6 +362,8 @@ class Translator:
         cached = self.cache.get(text, target_lang)
         if cached is not None:
             return cached
+        if self.cache_only:
+            return text
 
         # если клиент не задан явно — выбираем по сложности строки (STEP 5)
         use_client = client or self._pick_client(text)
@@ -335,6 +371,8 @@ class Translator:
         out = self._translate_masked(text, target_lang, use_client)
         # Сбой, отмена, пустой ответ или брак: отдаём исходник
         if self._answer_rejected(out, src_tokens, target_lang):
+            if self._is_model_fault(out):
+                self._note_rejected(text, target_lang)
             return text
 
         # В кэш идёт только настоящий перевод, иначе английский останется навсегда:
@@ -376,6 +414,9 @@ class Translator:
             c = self.cache.get(t, target_lang)
             if c is not None:
                 results[i] = c
+                continue
+            if self.cache_only:
+                results[i] = t
                 continue
 
             # сложные строки — одиночками; translate() сам сроутит их на
@@ -437,6 +478,8 @@ class Translator:
                 if out is None:
                     out = self.translate(src, target_lang)
                 if self._answer_rejected(out, src_tokens_ref[src], target_lang):
+                    if out != src:
+                        self._note_rejected(src, target_lang)
                     out = src
                 outputs_for_uniq[src] = out
                 if out != src:

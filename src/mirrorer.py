@@ -173,6 +173,7 @@ def _process_file(
     target_lang: str,
     cancel_event=None,
     pack: Optional[ResourcePackBuilder] = None,
+    force: bool = False,
 ) -> Tuple[bool, bool, bool]:
     """
     Возвращает (matched, ok, skipped)
@@ -192,7 +193,7 @@ def _process_file(
         return False, False, False
 
     # уже готов — считаем как matched+ok+skipped
-    if write and _dst_exists(out_root, rel, target_lang, path_norm):
+    if write and not force and _dst_exists(out_root, rel, target_lang, path_norm):
         log(f"[SKIP][exists] {rel}")
         return True, True, True
 
@@ -381,6 +382,69 @@ def _jar_has_lang_en_us(jar_path: str, include_nested: bool = False) -> bool:
         return False
 
 
+def _second_pass(translator, strong_client, log, on_total, on_tick, cancel_event) -> int:
+    """
+    Отправляет сильной модели только строки с браком основной. Ответ проходит тот же
+    валидатор, брак снова не кэшируется. Возвращает число исправленных строк.
+    """
+    pending = translator.take_rejected()
+    if not pending:
+        return 0
+    client, reason = strong_client()
+    if client is None:
+        log(f"[PASS2] Пропущен: {len(pending)} строк с браком остаются на английском. {reason}")
+        return 0
+
+    log(f"[PASS2] Брак основной модели в {len(pending)} строках. Второй проход: {client.name}")
+    if on_total:
+        on_total(len(pending))
+    fixed = 0
+    for text, lang in pending:
+        if _cancelled(cancel_event):
+            return fixed
+        translated = translator.translate(text, lang, client=client)
+        if _cancelled(cancel_event):
+            return fixed
+        good = translated != text
+        fixed += good
+        if on_tick:
+            on_tick(*((1, 1, 0, 0) if good else (1, 0, 0, 1)))
+    translator.take_rejected()
+    log(f"[PASS2] Исправлено {fixed} из {len(pending)}, на английском осталось {len(pending) - fixed}.")
+    return fixed
+
+
+def _rebuild_from_cache(
+    base_input, out_root, candidates, jars, translator, log, target_lang, cancel_event, pack_format, include_nested,
+) -> Optional[ResourcePackBuilder]:
+    """Заново собирает вывод из кэша, без запросов к модели. None: прервано «Стоп»."""
+
+    def errors_only(line: str) -> None:
+        if line.startswith(("[ERR", "[LWRN", "[WARN")):
+            log(line)
+
+    pack = ResourcePackBuilder(out_root, target_lang, pack_format)
+    translator.cache_only = True
+    try:
+        for path in candidates:
+            if _cancelled(cancel_event):
+                return None
+            _process_file(
+                base_input, out_root, path, translator, True, errors_only,
+                target_lang, cancel_event, pack, force=True,
+            )
+        for jar in jars:
+            if _cancelled(cancel_event):
+                return None
+            jar_lang.process_jar_lang(
+                jar, pack, translator, log=errors_only, write=True, target_lang=target_lang,
+                cancel_event=cancel_event, include_nested=include_nested,
+            )
+    finally:
+        translator.cache_only = False
+    return None if _cancelled(cancel_event) else pack
+
+
 def mirror_translate_dir(
     base_input: str,
     out_root: str,
@@ -391,6 +455,7 @@ def mirror_translate_dir(
     on_tick: Optional[Callable[[int, int, int, int], None]] = None,  # (done, ok, err, skip)
     cancel_event=None,
     target_lang: Optional[str] = None,
+    strong_client: Optional[Callable[[], tuple]] = None,
 ) -> None:
     """
     Параллельный проход по кандидатам с визуализацией прогресса.
@@ -398,10 +463,13 @@ def mirror_translate_dir(
     cancel_event — «Стоп»: отменяет ещё не начатые файлы (они НЕ пишутся в out_root).
     target_lang  — снимок языка на весь прогон (P0-3); None → берётся из config
                    один раз здесь, а не читается воркерами на лету.
+    strong_client — вызывается только при браке основной модели и возвращает
+                   (клиент сильной модели или None, причина). None: второго прохода нет.
     """
     try:
         _mirror_translate_dir(
             base_input, out_root, translator, log, write, on_total, on_tick, cancel_event, target_lang,
+            strong_client,
         )
     finally:
         # При любом выходе, включая _StopRequested из on_tick: сделанное не должно пропасть.
@@ -413,6 +481,7 @@ def mirror_translate_dir(
 
 def _mirror_translate_dir(
     base_input, out_root, translator, log, write, on_total, on_tick, cancel_event, target_lang,
+    strong_client=None,
 ) -> None:
     base_input = os.path.abspath(os.path.expanduser(base_input))
     out_root = os.path.abspath(out_root)
@@ -489,6 +558,11 @@ def _mirror_translate_dir(
     skipped = 0
     err = 0
     pack = ResourcePackBuilder(out_root, target_lang, modpack.pack_format) if write else None
+    # Файлы, готовые с прошлого запуска, второй проход не переписывает
+    finished_before = {
+        p for p in candidates
+        if write and _dst_exists(out_root, _rel(base_input, p), target_lang, p.replace("\\", "/"))
+    }
 
     # 3) Параллельно обрабатываем кандидатов
     def tick(matched_inc: int, ok_inc: int, err_inc: int, skip_inc: int):
@@ -576,6 +650,21 @@ def _mirror_translate_dir(
     if _cancelled(cancel_event):
         log("[STOP] Ресурспак не собран: запустите перевод снова, готовые строки сохранены в кэше.")
         return
+
+    # 5) Второй проход: брак основной модели переводит сильная
+    if write and strong_client is not None:
+        fixed = _second_pass(translator, strong_client, log, on_total, on_tick, cancel_event)
+        if _cancelled(cancel_event):
+            log("[STOP] Ресурспак не собран: запустите перевод снова, готовые строки сохранены в кэше.")
+            return
+        if fixed:
+            pack = _rebuild_from_cache(
+                base_input, out_root, [p for p in candidates if p not in finished_before], jar_ready,
+                translator, log, target_lang, cancel_event, modpack.pack_format, include_nested,
+            )
+            if pack is None:
+                log("[STOP] Ресурспак не собран: запустите перевод снова, готовые строки сохранены в кэше.")
+                return
 
     if pack is not None:
         zip_path = pack.finish()

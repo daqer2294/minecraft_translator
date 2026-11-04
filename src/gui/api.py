@@ -561,6 +561,7 @@ class Api:
                 on_tick=self._on_tick,
                 cancel_event=self._translate_cancel,
                 target_lang=target_lang,
+                strong_client=lambda: factory.build_strong_client(cfg),
             )
             # Отмена без исключения из on_tick: mirrorer вышел сам, но это не «Готово».
             if self._translate_cancel is not None and self._translate_cancel.is_set():
