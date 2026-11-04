@@ -1,8 +1,9 @@
 """
-Удаляет из кэша переводы, которые отбраковывает проверка смеси алфавитов.
+Удаляет из кэша переводы, которые не проходят текущие проверки ответа модели:
+смесь алфавитов, иероглифы, потеря или искажение разметки и кода.
 
-По умолчанию только показывает, что будет удалено. С --apply делает бэкап рядом
-с кэшем и записывает новый файл. Существующий бэкап не перезаписывается.
+По умолчанию только показывает, что будет удалено и почему. С --apply делает бэкап
+рядом с кэшем и записывает новый файл. Существующий бэкап не перезаписывается.
 
     python -m tools.clean_mixed_cache
     python -m tools.clean_mixed_cache --apply
@@ -14,24 +15,53 @@ import json
 import os
 import shutil
 import sys
-from typing import Dict, List, Tuple
+from typing import Dict, List, NamedTuple, Optional
 
 from src import config
+from src.translators import _extract_tokens, _has_foreign_cjk, _is_bare_id
+from src.utils.helpers import is_untranslatable
 from src.utils.markup import has_mixed_script_word
 
-BACKUP_SUFFIX = ".before-mixed-cleanup"
+BACKUP_SUFFIX = ".before-code-cleanup"
 
 
-def rejected_entries(data: Dict[str, Dict[str, str]]) -> List[Tuple[str, str, str]]:
-    return [
-        (lang, source, value)
-        for lang, mapping in data.items()
-        for source, value in mapping.items()
-        if has_mixed_script_word(value)
-    ]
+class Rejected(NamedTuple):
+    lang: str
+    source: str
+    value: str
+    reason: str
 
 
-def clean_cache(path: str, apply: bool = False) -> Dict[str, int]:
+def rejection_reason(source: str, value: str, lang: str) -> Optional[str]:
+    """Почему запись брак, или None. Перевод, равный оригиналу, браком не считается."""
+    if value == source:
+        return None
+    # Такие строки Translator отдаёт как есть, не заглядывая в кэш: запись ни на что не влияет.
+    if _is_bare_id(source) or is_untranslatable(source):
+        return None
+    if has_mixed_script_word(value):
+        return "смесь алфавитов"
+    if _has_foreign_cjk(value, lang):
+        return "иероглифы"
+    source_tokens, value_tokens = _extract_tokens(source), _extract_tokens(value)
+    if source_tokens != value_tokens:
+        lost = sorted(set(source_tokens) - set(value_tokens))
+        added = sorted(set(value_tokens) - set(source_tokens))
+        return f"разметка или код: потеряно {lost[:3]}, появилось {added[:3]}"
+    return None
+
+
+def rejected_entries(data: Dict[str, Dict[str, str]]) -> List[Rejected]:
+    found = []
+    for lang, mapping in data.items():
+        for source, value in mapping.items():
+            reason = rejection_reason(source, value, lang)
+            if reason:
+                found.append(Rejected(lang, source, value, reason))
+    return found
+
+
+def clean_cache(path: str, apply: bool = False) -> Dict[str, object]:
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
     if not all(isinstance(m, dict) for m in data.values()):
@@ -39,7 +69,9 @@ def clean_cache(path: str, apply: bool = False) -> Dict[str, int]:
 
     rejected = rejected_entries(data)
     before = sum(len(m) for m in data.values())
-    stats = {"before": before, "removed": len(rejected), "after": before - len(rejected)}
+    stats: Dict[str, object] = {
+        "before": before, "removed": len(rejected), "after": before - len(rejected), "entries": rejected,
+    }
     if not apply or not rejected:
         return stats
 
@@ -48,8 +80,8 @@ def clean_cache(path: str, apply: bool = False) -> Dict[str, int]:
         raise FileExistsError(f"Бэкап уже есть, не перезаписываю: {backup}")
     shutil.copy2(path, backup)
 
-    for lang, source, _ in rejected:
-        del data[lang][source]
+    for entry in rejected:
+        del data[entry.lang][entry.source]
     tmp = f"{path}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -63,6 +95,9 @@ def main(argv=None) -> int:
     parser.add_argument("--apply", action="store_true")
     args = parser.parse_args(argv)
     stats = clean_cache(args.cache, apply=args.apply)
+    if not args.apply:
+        for i, entry in enumerate(stats["entries"], 1):
+            print(f"{i}. [{entry.reason}]\n   {entry.source!r}\n   -> {entry.value!r}")
     action = "удалено" if args.apply else "будет удалено"
     print(f"{args.cache}: было {stats['before']}, {action} {stats['removed']}, останется {stats['after']}")
     return 0

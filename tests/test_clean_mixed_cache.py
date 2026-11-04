@@ -1,4 +1,4 @@
-"""Чистка кэша: удаляет только брак и всегда оставляет бэкап."""
+"""Чистка кэша: удаляет только то, что не проходит текущие проверки, и всегда оставляет бэкап."""
 from __future__ import annotations
 
 import json
@@ -6,19 +6,52 @@ import os
 import tempfile
 import unittest
 
-from tools.clean_mixed_cache import BACKUP_SUFFIX, clean_cache
+from tools.clean_mixed_cache import BACKUP_SUFFIX, clean_cache, rejection_reason
 
 DATA = {
     "ru_ru": {
         "Minecraft": "Мinecraft",
         "Show culling boxes": "Показать кulling кубы",
+        "Needs at least Netherite": "Необходимо至少 Netherite",
+        "floor(x)\nRound x down": "пол(x)\nОкруглите x вниз",
+        "Share %s now": "Поделиться сейчас",
+        "§aGreen text": "Зелёный текст",
         "Iron Ingot": "Железный слиток",
         "Pokémon team": "Команда Pokémon",
         "Share %s": "Поделиться %s",
+        "floor(x)\nRound down": "floor(x)\nОкруглить вниз",
         "Sodium": "Sodium",
+        "clamp(x, min, max)": "кламп(х, мин, макс)",
     },
     "de_de": {"Iron Ingot": "Eisenbarren"},
+    "zh_cn": {"Needs more": "至少需要"},
 }
+BAD = {
+    "Minecraft", "Show culling boxes", "Needs at least Netherite", "floor(x)\nRound x down",
+    "Share %s now", "§aGreen text",
+}
+
+
+class Reasons(unittest.TestCase):
+    def test_each_kind_is_named(self):
+        self.assertEqual(rejection_reason("Minecraft", "Мinecraft", "ru_ru"), "смесь алфавитов")
+        self.assertEqual(rejection_reason("Needs more", "至少", "ru_ru"), "иероглифы")
+        self.assertIn("разметка или код", rejection_reason("floor(x)\nRound", "пол(x)\nОкруглить", "ru_ru"))
+        self.assertIn("floor(x)", rejection_reason("floor(x)\nRound", "пол(x)\nОкруглить", "ru_ru"))
+
+    def test_equal_to_source_is_not_a_reason(self):
+        for text in ("Sodium", "Minecraft", "Share %s"):
+            self.assertIsNone(rejection_reason(text, text, "ru_ru"))
+
+    def test_clean_translation_passes(self):
+        self.assertIsNone(rejection_reason("Share %s", "Поделиться %s", "ru_ru"))
+        self.assertIsNone(rejection_reason("Pokémon team", "Команда Pokémon", "ru_ru"))
+
+    def test_chinese_target_may_have_cjk(self):
+        self.assertIsNone(rejection_reason("Needs more", "至少需要", "zh_cn"))
+
+    def test_string_of_only_code_is_skipped_since_translator_never_reads_it(self):
+        self.assertIsNone(rejection_reason("clamp(x, min, max)", "кламп(х, мин, макс)", "ru_ru"))
 
 
 class CleanCache(unittest.TestCase):
@@ -29,24 +62,28 @@ class CleanCache(unittest.TestCase):
         with open(self.path, "rb") as f:
             self.original = f.read()
 
-    def _read(self, path=None):
-        with open(path or self.path, encoding="utf-8") as f:
-            return json.load(f)
+    def _counts(self, stats):
+        return stats["before"], stats["removed"], stats["after"]
 
-    def test_dry_run_changes_nothing(self):
-        self.assertEqual(clean_cache(self.path), {"before": 7, "removed": 2, "after": 5})
+    def test_dry_run_changes_nothing_and_lists_entries(self):
+        stats = clean_cache(self.path)
+        self.assertEqual(self._counts(stats), (14, 6, 8))
+        self.assertEqual({e.source for e in stats["entries"]}, BAD)
         with open(self.path, "rb") as f:
             self.assertEqual(f.read(), self.original)
         self.assertFalse(os.path.exists(self.path + BACKUP_SUFFIX))
 
     def test_apply_removes_only_rejected_entries(self):
-        self.assertEqual(clean_cache(self.path, apply=True), {"before": 7, "removed": 2, "after": 5})
-        cleaned = self._read()
-        self.assertNotIn("Minecraft", cleaned["ru_ru"])
-        self.assertNotIn("Show culling boxes", cleaned["ru_ru"])
-        for key in ("Iron Ingot", "Pokémon team", "Share %s", "Sodium"):
-            self.assertEqual(cleaned["ru_ru"][key], DATA["ru_ru"][key])
+        self.assertEqual(self._counts(clean_cache(self.path, apply=True)), (14, 6, 8))
+        with open(self.path, encoding="utf-8") as f:
+            cleaned = json.load(f)
+        for key, value in DATA["ru_ru"].items():
+            if key in BAD:
+                self.assertNotIn(key, cleaned["ru_ru"])
+            else:
+                self.assertEqual(cleaned["ru_ru"][key], value)
         self.assertEqual(cleaned["de_de"], DATA["de_de"])
+        self.assertEqual(cleaned["zh_cn"], DATA["zh_cn"])
 
     def test_backup_is_byte_identical_to_the_original(self):
         clean_cache(self.path, apply=True)
