@@ -14,9 +14,12 @@ class Streams(unittest.TestCase):
     def test_none_streams_become_devnull(self):
         with mock.patch.object(sys, "stdout", None), mock.patch.object(sys, "stderr", None):
             platform_guard.ensure_std_streams()
-            self.assertIsNotNone(sys.stdout)
-            print("никуда", file=sys.stdout)
-            sys.stderr.write("никуда")
+            out, err = sys.stdout, sys.stderr
+            self.assertIsNotNone(out)
+            print("никуда", file=out)
+            err.write("никуда")
+        out.close()
+        err.close()
 
     def test_closed_descriptor_is_reopened(self):
         real_fstat = os.fstat
