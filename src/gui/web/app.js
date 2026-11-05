@@ -253,6 +253,9 @@ function render(state) {
   $("#stSkip").textContent = state.skip;
   $("#stErr").textContent = state.err;
   $("#stSpeed").textContent = state.speed ? state.speed + "/с" : "—";
+  const est = $("#estimateBox");
+  est.hidden = !(state.estimate && state.estimate.length);
+  if (!est.hidden) est.textContent = state.estimate.join("\n");
   $("#stEta").textContent = fmtEta(state.eta);
   const pct = state.total ? Math.min(100, (state.done / state.total) * 100) : 0;
   $("#progBar").style.width = pct.toFixed(1) + "%";

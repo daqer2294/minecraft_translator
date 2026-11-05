@@ -113,6 +113,7 @@ class Api:
             "input": "",
             "output": config.DEFAULT_OUTPUT_DIR,
             "dry": True,
+            "estimate": None,
             "lang": getattr(config, "TARGET_LANG", "ru_ru"),
             "mode": getattr(config.PROVIDER, "mode", "local"),
             "tier": default_tier,
@@ -580,6 +581,27 @@ class Api:
         finally:
             self._set(running=False, paused=False)
 
+    def _run_estimate(self, inp: str, target_lang: str):
+        """«Только посчитать»: тот же конвейер, вместо модели заглушки. Модель не нужна и не качается."""
+        from .. import estimate as est_mod
+        try:
+            cfg = config.PROVIDER
+            cfg.mode = self._state["mode"]
+            strong, reason = factory.build_strong_client(cfg) if config.LONG_TEXT_STRONG else (None, "")
+            est = est_mod.estimate_dir(
+                inp, target_lang, config.DEFAULT_CACHE_PATH, strong_available=strong is not None,
+                log=self._log, cancel_event=self._translate_cancel,
+            )
+            lines = est.lines()
+            for line in lines:
+                self._log("🧮 " + line)
+            self._set(phase="done", message="", estimate=lines)
+        except Exception as e:
+            self._set(phase="error", message=str(e))
+            self._log(f"❌ Ошибка подсчёта: {e}")
+        finally:
+            self._set(running=False, paused=False)
+
     def start(self) -> Dict[str, Any]:
         with self._lock:
             if self._state["running"]:
@@ -600,6 +622,16 @@ class Api:
             return self._snapshot()
 
         mode = self._state["mode"]
+
+        # «Только посчитать»: модель не нужна, ничего не переводится и не пишется
+        if self._state["dry"]:
+            self._control.reset()
+            self._translate_cancel = threading.Event()
+            self._set(running=True, paused=False, phase="estimating", message="Подсчёт строк…", estimate=None)
+            self._log(f"🧮 Подсчёт без перевода: {inp} | lang: {self._state['lang']}")
+            self._worker = threading.Thread(target=self._run_estimate, args=(inp, self._state["lang"]), daemon=True)
+            self._worker.start()
+            return self._snapshot()
 
         # ollama: нужна выбранная модель (проверять/качать GGUF не надо)
         if mode == "ollama" and not config.PROVIDER.ollama_model:

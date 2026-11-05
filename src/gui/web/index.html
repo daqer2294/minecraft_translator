@@ -43,7 +43,7 @@
         <div class="row between">
           <label class="check">
             <input type="checkbox" id="dryRun" checked />
-            <span>Проверка без записи (dry-run)</span>
+            <span>Только посчитать, без перевода</span>
           </label>
           <label class="field inline">
             <span>Язык</span>
@@ -139,6 +139,7 @@
           <div class="stat"><b id="stEta">—</b><span>ETA</span></div>
         </div>
         <div class="progress"><div class="bar" id="progBar"></div></div>
+        <pre class="estimate" id="estimateBox" hidden></pre>
         <div class="controls">
           <button class="btn primary" id="startBtn">▶ Старт</button>
           <button class="btn" id="pauseBtn" disabled>⏸ Пауза</button>
