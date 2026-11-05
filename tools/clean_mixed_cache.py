@@ -42,7 +42,7 @@ from src.utils.markup import (
     protected_code_tokens,
 )
 
-BACKUP_SUFFIX = ".before-guard-cleanup"
+BACKUP_SUFFIX = ".before-tag-cleanup"
 LISTED_REASON = "указана вручную"
 
 
