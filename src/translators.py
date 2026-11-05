@@ -20,6 +20,7 @@ from .utils.markup import (
     has_mixed_script_word,
     looks_hallucinated,
     mask,
+    protected_code_changed,
     unmask,
 )
 from .utils.prompt_leak import PromptLeakDetector
@@ -528,6 +529,7 @@ class Translator:
             or looks_hallucinated(source, out)
             or has_intro_or_raw_mask(source, out)
             or bool(foreign_latin_words(source, out))
+            or protected_code_changed(source, out)
             or (self.strict and src_tokens != _extract_tokens(out))
         )
 

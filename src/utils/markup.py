@@ -5,7 +5,8 @@
 Модель её теряет и переводит: на реальных строках плейсхолдеры выживали в 69-90 %
 случаев, коды в 23-89 %, переносы в 39-61 %. Поэтому разметка не отправляется вовсе.
 Токены по краям строки снимаются, внутри заменяются на [[N]] и возвращаются после ответа.
-То же для выражений кода: вызовов, camelCase и snake_case.
+То же для выражений кода: вызовов, camelCase и snake_case, а также для слэш-команд
+и идентификаторов в кавычках.
 """
 from __future__ import annotations
 
@@ -29,6 +30,29 @@ _CODE_CAMEL = _CODE_START + r"[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+(?![\w$])"
 # Только единый регистр: «Light_gray» и «Diagonal_Right» в названиях это текст.
 _CODE_SNAKE = _CODE_START + r"(?:[a-z][a-z0-9]*(?:_[a-z0-9]+)+|[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)(?![\w$])"
 
+# Слэш-команда: «/cp search». Модель переводит аргумент как текст: «/cp поиск». Слева только
+# граница, поэтому «1/2», «and/or», «Message/Command» и пути не подходят. Аргументов не больше
+# двух, служебное слово заканчивает команду: «/particle command to be used», «/cp reboot to reboot».
+_COMMAND_STOP_WORDS = (
+    "a|an|and|are|as|at|be|but|by|can|command|commands|could|do|does|for|from|has|have|if|in|is|it|may|"
+    "must|not|of|on|or|should|that|the|then|this|to|was|when|which|while|will|with|would|you|your"
+)
+_COMMAND_END = r"(?![\w/\-]|\.\w)"
+_COMMAND_ARG = (
+    r"(?!(?:" + _COMMAND_STOP_WORDS + r")(?![\w\-]))"
+    r"(?:@[a-z]|[a-z](?:[a-z0-9_:.\-]*[a-z0-9])?)" + _COMMAND_END
+)
+_SLASH_COMMAND = (
+    r"""(?:^|(?<=[\s"'`«“(\[])|(?<=[§&][0-9a-fk-orA-FK-OR])|(?<=\\n))"""
+    r"/[a-z][a-z0-9_\-]*" + _COMMAND_END + r"(?: +" + _COMMAND_ARG + r"){0,2}"
+)
+# Идентификатор в кавычках, в нижнем регистре, с точкой, подчёркиванием или двоеточием:
+# "player.icon". Кавычки в токен не входят: модель вправе заменить их на «ёлочки».
+_QUOTED_ID = (
+    r"""(?<!\w')(?<=["'`«“„])[a-z][a-z0-9_\-]*(?:[._:][a-z0-9_\-]+)+(?=\\?["'`»”])"""
+)
+_PROTECTED_CODE_RE = re.compile(_SLASH_COMMAND + "|" + _QUOTED_ID)
+
 MARKUP_RE = re.compile(
     r"%(?:\d+\$)?-?\d*(?:\.\d+)?[sd]"          # %s, %1$s, %02d
     r"|%(?:\d+\$)?-?\d*(?:\.\d+)?[ifxbc](?![A-Za-z])"  # %f, %x; не «10%off»
@@ -40,6 +64,7 @@ MARKUP_RE = re.compile(
     r"|\[\[\s*\d+\s*\]\]"                      # наш же токен в исходнике
     r"|\\n"                                    # \n двумя символами, как в SNBT
     r"|\n"
+    + "|" + _SLASH_COMMAND + "|" + _QUOTED_ID +
     r"|(?<![A-Za-z0-9_.\-])[a-z0-9_.\-]*[a-z][a-z0-9_.\-]*:[a-z0-9_/.\-]*[a-z_/][a-z0-9_/.\-]*"  # modid:item
     + "|" + _CODE_CALL + "|" + _CODE_CAMEL + "|" + _CODE_SNAKE
 )
@@ -80,6 +105,16 @@ def has_mixed_script_word(text: str) -> bool:
         _CYRILLIC_RE.search(word) and _LATIN_RE.search(word)
         for word in _WORD_RE.findall(MARKUP_RE.sub(" ", text))
     )
+
+
+def protected_code_tokens(text: str) -> List[str]:
+    """Слэш-команды и идентификаторы в кавычках из строки, по порядку."""
+    return [match.group(0) for match in _PROTECTED_CODE_RE.finditer(text)]
+
+
+def protected_code_changed(source: str, answer: str) -> bool:
+    """Команды и идентификаторы из источника вернулись не все или не в том виде: это порча кода."""
+    return sorted(protected_code_tokens(source)) != sorted(protected_code_tokens(answer))
 
 
 # Вступление модели перед переводом и слово в источнике, при котором такое начало законно.
