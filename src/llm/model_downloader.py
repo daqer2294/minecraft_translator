@@ -18,6 +18,7 @@ import certifi
 from .. import config
 from . import model_registry as registry
 from .model_registry import ModelSpec
+from ..utils.helpers import replace_file
 
 
 def _ssl_context() -> Optional[ssl.SSLContext]:
@@ -395,7 +396,7 @@ def download_model(
             )
 
     try:
-        os.replace(part, target)
+        replace_file(part, target)
     except OSError as e:
         _cleanup(part)
         raise DownloadError(f"Не удалось сохранить файл модели: {e}") from e

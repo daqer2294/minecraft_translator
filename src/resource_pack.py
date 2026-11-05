@@ -15,6 +15,7 @@ import zipfile
 from typing import Any, Dict, Iterable, Optional, Set
 
 from .modpack_info import DEFAULT_PACK_FORMAT
+from .utils.helpers import replace_file
 
 # С формата 65 (Minecraft 1.21.9) версию пака задают min_format и max_format.
 MIN_MAX_FORMAT_SINCE = 65
@@ -78,7 +79,7 @@ class ResourcePackBuilder:
                     z.writestr("pack.mcmeta", json.dumps(self._mcmeta(), ensure_ascii=False, indent=2))
                     for rel in sorted(files):
                         z.writestr(rel, json.dumps(files[rel], ensure_ascii=False, indent=2))
-                os.replace(tmp, self.zip_path)
+                replace_file(tmp, self.zip_path)
             finally:
                 if os.path.exists(tmp):
                     os.remove(tmp)

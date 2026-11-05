@@ -91,3 +91,21 @@ def is_untranslatable(text: str) -> bool:
     if _RE_NUMERIC_UNIT.fullmatch(s) and _RE_DIGIT.search(s):
         return True
     return _RE_SINGLE_LETTER.fullmatch(s) is not None
+
+
+def replace_file(src: str, dst: str, attempts: int = 5, delay: float = 0.2) -> None:
+    """
+    os.replace с повтором. На Windows замена падает с PermissionError, пока файл назначения
+    открыт другим процессом: антивирус проверяет только что записанный файл, Minecraft держит
+    открытым пак из resourcepacks. Обычно это на доли секунды. После всех попыток ошибка как раньше.
+    """
+    import time
+
+    for attempt in range(attempts):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(delay)
