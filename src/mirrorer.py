@@ -203,7 +203,7 @@ def _process_file(
         try:
             if write:
                 official = os.path.join(os.path.dirname(src_path), f"{target_lang}.json")
-                merged, fresh, official_keys = lang_json.translate_lang_file(src_path, translator, official)
+                merged, fresh, official_keys = lang_json.translate_lang_file(src_path, translator, official, target_lang)
                 if _discard_if_cancelled(dst_ru, cancel_event, log):
                     return False, False, False
                 if merged is not None:

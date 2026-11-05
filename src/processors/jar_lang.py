@@ -8,23 +8,23 @@ from typing import Callable, Dict, List, Optional
 
 from .. import config
 from ..utils.helpers import parse_lang_bytes
-from .lang_json import has_official_translation, keys_to_translate, merge_lang
+from .lang_json import has_official_translation, keys_to_translate, merge_lang, source_text
 
 _LANG_MEMBER = re.compile(r"(assets/[^/]+/lang/)([A-Za-z_]+)\.json$")
 _NESTED_JARS_DIR = "META-INF/jars/"
 _MAX_NESTING = 4
 
 
-def _translate_strings(en: dict, keys: List[str], translator, target_lang: str, cancel_event) -> Dict[str, str]:
+def _translate_strings(sources: dict, keys: List[str], translator, target_lang: str, cancel_event) -> Dict[str, str]:
     translated = {}
     for k in keys:
         if cancel_event is not None and cancel_event.is_set():
             break
         try:
-            translated[k] = translator.translate(en[k], target_lang=target_lang)
+            translated[k] = translator.translate(sources[k], target_lang=target_lang)
         except Exception:
-            # Сбой на строке: ключ останется без перевода, игра покажет en_us.
-            translated[k] = en[k]
+            # Сбой на строке: ключ останется без перевода, игра покажет свой текст.
+            translated[k] = sources[k]
     return translated
 
 
@@ -92,27 +92,28 @@ def _process_archive(
                 log(f"[LWRN][jar] {jar_label}:{official_member}: официальный перевод не читается, skip")
                 continue
 
-        keys = keys_to_translate(en, official)
+        keys = keys_to_translate(en, official, target_lang)
         rel_dst = f"{folder}{target_lang}.json"
         # До любого выхода: другой jar с тем же пространством имён не должен их перекрыть.
         if write:
-            pack.add_lang(rel_dst, {}, [k for k in en if has_official_translation(k, en, official)])
+            pack.add_lang(rel_dst, {}, [k for k in en if has_official_translation(k, en, official, target_lang)])
         if not keys:
             log(f"[SKIP][official] {jar_label}:{member}: всё переведено официально")
             continue
 
-        translated = _translate_strings(en, keys, translator, target_lang, cancel_event)
+        sources = {k: source_text(k, en, official, target_lang) for k in keys}
+        translated = _translate_strings(sources, keys, translator, target_lang, cancel_event)
         if cancel_event is not None and cancel_event.is_set():
             log(f"[STOP][discard] {jar_label}:{member}: прерван, в пак не добавлен")
             return processed
-        fresh = sum(translated[k] != en[k] for k in keys)
+        fresh = sum(translated[k] != sources[k] for k in keys)
         processed += 1
         if not fresh:
             log(f"[SKIP][nothing-new] {jar_label}:{member}")
             continue
 
         if write:
-            merged = merge_lang(en, official, translated)
+            merged = merge_lang(en, official, translated, target_lang)
             pack.add_lang(rel_dst, merged, [k for k in merged if k in official and k not in translated])
             log(f"[OK][jar] {jar_label}:{member}: новых {fresh}, официальных {len(en) - len(keys)}")
         else:
