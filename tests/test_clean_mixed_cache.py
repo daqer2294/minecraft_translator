@@ -1,12 +1,17 @@
 """Чистка кэша: удаляет только то, что не проходит текущие проверки, и всегда оставляет бэкап."""
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import tempfile
 import unittest
 
-from tools.clean_mixed_cache import BACKUP_SUFFIX, clean_cache, rejection_reason
+from unittest import mock
+
+from tools import clean_mixed_cache
+from tools.clean_mixed_cache import BACKUP_SUFFIX, LISTED_REASON, clean_cache, rejection_reason, retranslate
 
 DATA = {
     "ru_ru": {
@@ -48,6 +53,18 @@ class Reasons(unittest.TestCase):
     def test_invented_answer_is_named(self):
         self.assertIn("выдуманный", rejection_reason("PKMNCC", "Покемонов не существует в Minecraft.", "ru_ru"))
         self.assertIsNone(rejection_reason("Custom", "Персонализированный", "ru_ru"))
+
+    def test_preamble_and_raw_mask_are_named(self):
+        for value in ("Хорошо, вот перевод: Диапазон", "Хорошо, вот перевод: [[Range]]"):
+            self.assertIn("вступление", rejection_reason("Range", value, "ru_ru"))
+        self.assertIsNone(rejection_reason("Of course", "Конечно", "ru_ru"))
+
+    def test_foreign_latin_word_is_named(self):
+        reason = rejection_reason("Dyes", "Цветные crayones", "ru_ru")
+        self.assertIn("латинское слово", reason)
+        self.assertIn("crayones", reason)
+        for source, value in (("Pokémon team", "Команда Pokémon"), ("Screens", "На MacBook'ах"), ("Maps", "Карты (mipmapping)")):
+            self.assertIsNone(rejection_reason(source, value, "ru_ru"))
 
     def test_equal_to_source_is_not_a_reason(self):
         for text in ("Sodium", "Minecraft", "Share %s"):
@@ -110,11 +127,93 @@ class CleanCache(unittest.TestCase):
         with open(self.path, "rb") as f:
             self.assertEqual(f.read(), self.original)
 
+    def test_listed_strings_are_removed_with_rejected_ones(self):
+        stats = clean_cache(self.path, apply=True, also=["Iron Ingot", "PKMNCC"])
+        self.assertEqual(self._counts(stats), (16, 9, 7))
+        by_source = {(e.lang, e.source): e.reason for e in stats["entries"]}
+        self.assertEqual(by_source[("ru_ru", "Iron Ingot")], LISTED_REASON)
+        self.assertIn("выдуманный", by_source[("ru_ru", "PKMNCC")])
+        with open(self.path, encoding="utf-8") as f:
+            cleaned = json.load(f)
+        self.assertNotIn("Iron Ingot", cleaned["ru_ru"])
+        self.assertEqual(cleaned["de_de"], DATA["de_de"])
+
+    def test_listed_string_missing_from_cache_changes_nothing(self):
+        with self.assertRaises(KeyError):
+            clean_cache(self.path, apply=True, also=["Нет такой строки"])
+        with open(self.path, "rb") as f:
+            self.assertEqual(f.read(), self.original)
+        self.assertFalse(os.path.exists(self.path + BACKUP_SUFFIX))
+
     def test_nothing_to_remove_makes_no_backup(self):
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump({"ru_ru": {"Iron": "Железо"}}, f, ensure_ascii=False)
         self.assertEqual(clean_cache(self.path, apply=True)["removed"], 0)
         self.assertFalse(os.path.exists(self.path + BACKUP_SUFFIX))
+
+
+class Model:
+    name = "strong"
+
+    def __init__(self, answers):
+        self.answers, self.calls = answers, []
+
+    def chat(self, messages, **kwargs):
+        text = messages[-1]["content"]
+        self.calls.append(text)
+        return self.answers[text]
+
+
+class Retranslate(unittest.TestCase):
+    def setUp(self):
+        self.path = os.path.join(tempfile.mkdtemp(), "cache.json")
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump({"ru_ru": {"Dyes": "Цветные crayones", "Bad one": "Плохо infliction", "Iron": "Железо"}}, f, ensure_ascii=False)
+
+    def _cache(self):
+        with open(self.path, encoding="utf-8") as f:
+            return json.load(f)["ru_ru"]
+
+    def test_answer_is_cached_and_defect_is_not(self):
+        stats = clean_cache(self.path, apply=True)
+        model = Model({"Dyes": "Красители", "Bad one": "Снова infliction"})
+        results = retranslate(self.path, stats["entries"], model)
+        self.assertEqual([(r.source, r.value, r.passed) for r in results], [
+            ("Dyes", "Красители", True), ("Bad one", "Bad one", False),
+        ])
+        self.assertEqual(self._cache(), {"Iron": "Железо", "Dyes": "Красители"})
+        self.assertEqual(set(model.calls), {"Dyes", "Bad one"})
+
+    def test_cli_uses_only_the_given_model(self):
+        model = Model({"Dyes": "Красители", "Bad one": "Плохая"})
+        with mock.patch.object(clean_mixed_cache, "strong_ollama_client", return_value=model), \
+                mock.patch("src.llm.factory.build_clients", side_effect=AssertionError("основная модель не нужна")), \
+                contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(clean_mixed_cache.main(["--cache", self.path, "--apply", "--retranslate"]), 0)
+        self.assertEqual(self._cache(), {"Iron": "Железо", "Dyes": "Красители", "Bad one": "Плохая"})
+        self.assertIn("Прошло все проверки: 2 из 2", out.getvalue())
+
+    def test_no_strong_model_means_nothing_is_deleted(self):
+        with open(self.path, "rb") as f:
+            original = f.read()
+        with mock.patch.object(clean_mixed_cache, "strong_ollama_client", side_effect=RuntimeError("нет")):
+            with self.assertRaises(RuntimeError):
+                clean_mixed_cache.main(["--cache", self.path, "--apply", "--retranslate"])
+        with open(self.path, "rb") as f:
+            self.assertEqual(f.read(), original)
+        self.assertFalse(os.path.exists(self.path + BACKUP_SUFFIX))
+
+    def test_fallback_to_a_local_model_is_refused(self):
+        class Local:
+            name = "qwen-standard"
+
+        with mock.patch("src.llm.factory.build_strong_client", return_value=(Local(), "")):
+            with self.assertRaises(RuntimeError):
+                clean_mixed_cache.strong_ollama_client(object())
+
+    def test_retranslate_needs_apply(self):
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            clean_mixed_cache.main(["--cache", self.path, "--retranslate"])
 
 
 if __name__ == "__main__":
