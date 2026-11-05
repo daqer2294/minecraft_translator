@@ -14,7 +14,7 @@
     {"en": "critical hit", "ru": "критический удар", "forms": ["critical hit", "critical hits", "Critical hit", "Critical hits"], "roots": ["критическ"], "check": true},
     {"en": "headbutt", "ru": "удар головой", "forms": ["headbutt", "headbutts"], "roots": ["удар", "голов"], "check": true},
     {"en": "faint", "ru": "потерять сознание", "forms": ["faints", "fainted", "fainting", "will faint", "may faint", "also faint", "to faint"], "roots": ["сознан"], "check": true},
-    {"en": "move", "ru": "приём", "forms": ["this move", "This move", "the move", "that move", "any move", "a move", "moves such as", "moves like", "the moves"], "roots": ["прием"], "check": true},
+    {"en": "move", "ru": "приём", "forms": ["this move", "This move", "the move", "The move", "that move", "That move", "any move", "Any move", "a move", "A move", "moves such as", "moves like", "the moves", "The moves"], "roots": ["прием"], "check": true},
     {"en": "Pokémon", "ru": "покемон", "forms": ["Pokémon"], "roots": ["покемон"], "check": false}
   ]
 }

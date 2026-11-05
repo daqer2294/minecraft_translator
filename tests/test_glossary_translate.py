@@ -64,6 +64,8 @@ class Find(unittest.TestCase):
     def test_verb_moves_is_not_a_term(self):
         self.assertEqual(self.names("It moves freely in the water."), [])
         self.assertEqual(self.names("This move always goes first."), ["move"])
+        self.assertEqual(self.names("A move that leaves a mark."), ["move"])
+        self.assertEqual(self.g.missing("A move that hits.", "Поступок, который бьёт."), ["move"])
 
     def test_common_word_at_sentence_start_is_not_a_term(self):
         self.assertEqual(self.names("Fly high. Bind tight."), [])
