@@ -13,6 +13,8 @@ _CYRILLIC_RE = re.compile("[\u0400-\u052f]")
 _WORD_RE = re.compile(r"[^\W\d_]{2,}")
 _LATIN_WORD_RE = re.compile("[A-Za-z\u00c0-\u024f]+")
 ENGLISH_MIN_WORDS = 2
+# В ru_ru JourneyMap устарел: на кнопке «Disable All» там целое предложение. Его текст берётся из en_us.
+_EN_US_SOURCE_PREFIXES = ("jm.", "key.journeymap")
 
 
 def is_english_left(value: object, target_lang: str) -> bool:
@@ -42,6 +44,8 @@ def source_text(key: str, en: dict, official: dict, target_lang: str = "") -> st
     Если в нём другая разметка, то en_us: подстановки в коде мода рассчитаны на него.
     """
     value = official.get(key)
+    if key.startswith(_EN_US_SOURCE_PREFIXES):
+        return en[key]
     if is_english_left(value, target_lang) and sorted(MARKUP_RE.findall(value)) == sorted(MARKUP_RE.findall(en[key])):
         return value
     return en[key]

@@ -113,6 +113,23 @@ class Source(unittest.TestCase):
         en, official = {"k": "Teleport to {name} at {x}"}, {"k": "Teleport to the point at {x}"}
         self.assertEqual(source_text("k", en, official, "ru_ru"), en["k"])
 
+    def test_journeymap_uses_en_us(self):
+        for key, en, value in (
+            ("jm.waypoint.disable_waypoints", "Disable All", "Disable only the current visible Waypoints in the list."),
+            ("jm.common.waypoint.select_all", "All", "Selects all waypoints"),
+            ("key.journeymap.toggle_waypoints", "Toggle All Waypoints", "Toggle all Waypoints"),
+        ):
+            self.assertEqual(source_text(key, {key: en}, {key: value}, "ru_ru"), en)
+            self.assertEqual(keys_to_translate({key: en}, {key: value}, "ru_ru"), [key])
+
+    def test_journeymap_russian_value_stays_official(self):
+        key = "jm.common.options"
+        self.assertEqual(keys_to_translate({key: "Options"}, {key: "Настройки"}, "ru_ru"), [])
+
+    def test_other_mods_keep_the_official_english(self):
+        key = "jmod.other.label"
+        self.assertEqual(source_text(key, {key: "Delete it"}, {key: "Delete this one"}, "ru_ru"), "Delete this one")
+
     def test_key_without_official_value_uses_en_us(self):
         self.assertEqual(source_text("k", {"k": "Some text"}, {}, "ru_ru"), "Some text")
 
