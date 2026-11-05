@@ -43,7 +43,7 @@ from src.utils.markup import (
     protected_code_tokens,
 )
 
-BACKUP_SUFFIX = ".before-nocyrillic-cleanup"
+BACKUP_SUFFIX = ".before-under-cleanup"
 LISTED_REASON = "указана вручную"
 
 
