@@ -7,10 +7,8 @@ import re
 from typing import Dict, List, Optional, Tuple
 
 from ..utils.helpers import ensure_dir_for_file, parse_lang_bytes
-from ..utils.markup import MARKUP_RE
+from ..utils.markup import MARKUP_RE, is_cyrillic_lang
 
-# Языки на кириллице: английское значение в их файле заметно по алфавиту.
-_CYRILLIC_TARGETS = ("ru_", "uk_", "be_", "bg_", "kk_", "mk_", "mn_", "ba_", "tt_", "sr_sp")
 _CYRILLIC_RE = re.compile("[\u0400-\u052f]")
 _WORD_RE = re.compile(r"[^\W\d_]{2,}")
 _LATIN_WORD_RE = re.compile("[A-Za-z\u00c0-\u024f]+")
@@ -23,7 +21,7 @@ def is_english_left(value: object, target_lang: str) -> bool:
     «The target is punched with an icy fist.» Одно слово («Windows») и значение без букв
     могут быть настоящим переводом, поэтому не считаются.
     """
-    if not isinstance(value, str) or not target_lang.lower().startswith(_CYRILLIC_TARGETS):
+    if not isinstance(value, str) or not is_cyrillic_lang(target_lang):
         return False
     words = _WORD_RE.findall(value)
     return (

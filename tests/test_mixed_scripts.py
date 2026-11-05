@@ -5,6 +5,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import tempfile
 import unittest
 
@@ -119,6 +120,9 @@ class Rejection(unittest.TestCase):
             # Слова и теги ответа есть в источнике: они проверяются в test_foreign_latin_words и test_invented_tags.
             # Теги в середине: с края строки маскирование снимает их и возвращает к ответу.
             source = " ".join(["Some", *invented_tags("", answer), "source text", *foreign_latin_words("", answer)])
+            # Ответ без кириллицы на источник из нескольких слов проверяется в test_answer_without_cyrillic.
+            if not re.search("[а-яё]", answer, re.I):
+                source = "Source"
             self.assertEqual(tr.translate(source), answer.strip())
 
 

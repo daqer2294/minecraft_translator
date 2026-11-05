@@ -15,6 +15,7 @@ from .utils.markup import (
     MARKUP_RE,
     MASK_PROMPT_NOTE,
     MASK_PROMPT_NOTE_RU,
+    answer_without_cyrillic,
     foreign_latin_words,
     has_intro_or_raw_mask,
     has_mixed_script_word,
@@ -534,6 +535,7 @@ class Translator:
             or bool(foreign_latin_words(source, out))
             or protected_code_changed(source, out)
             or bool(invented_tags(source, out))
+            or answer_without_cyrillic(source, out, target_lang)
             or (self.strict and src_tokens != _extract_tokens(out))
         )
 

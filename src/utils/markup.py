@@ -155,11 +155,52 @@ def invented_tags(source: str, answer: str) -> List[str]:
     return found
 
 
+# Языки на кириллице: английский ответ заметен по алфавиту.
+_CYRILLIC_TARGETS = ("ru_", "uk_", "be_", "bg_", "kk_", "mk_", "mn_", "ba_", "tt_", "sr_sp")
+_URL_RE = re.compile(r"(?:https?://|www\.)\S+")
+_TEXT_WORD_RE = re.compile(r"[^\W\d_]{2,}")
+_KEY_COMBO_RE = re.compile(r"[^\W_]+(?:\s*\+\s*[^\W_]+)+")
+_UNIT_WORDS = {"mb", "kb", "gb", "fe", "rf", "km", "cm", "mm", "kg", "ms", "fps", "tps", "hz"}
+NO_CYRILLIC_MIN_WORDS = 2
+# Столько слов и меньше: один и тот же текст в ответе считается названием, а не отказом переводить.
+NAME_MAX_WORDS = 4
+
+
+def is_cyrillic_lang(lang: str) -> bool:
+    return lang.lower().startswith(_CYRILLIC_TARGETS)
+
+
+def _plain_text(text: str) -> str:
+    """Текст без ссылок, разметки, кода и защищённых токенов."""
+    return MARKUP_RE.sub(" ", _URL_RE.sub(" ", text)).strip()
+
+
+def answer_without_cyrillic(source: str, answer: str, target_lang: str) -> bool:
+    """
+    В источнике от двух слов, а в ответе на язык с кириллицей нет ни одной её буквы:
+    «Wraps itself in thin strings of silk» → «wraps itself in thin strings». Ответ, равный
+    источнику, сюда не относится. Не брак: сочетание клавиш, единицы измерения и название,
+    у которого все слова совпали с источником.
+    """
+    if answer == source or not is_cyrillic_lang(target_lang) or _CYRILLIC_RE.search(answer):
+        return False
+    plain_source = _plain_text(source)
+    source_words = _TEXT_WORD_RE.findall(plain_source)
+    if len(source_words) < NO_CYRILLIC_MIN_WORDS or _KEY_COMBO_RE.fullmatch(plain_source):
+        return False
+    if _TEXT_WORD_RE.findall(_plain_text(answer)) == source_words and len(source_words) <= NAME_MAX_WORDS:
+        return False
+    # Без снятия разметки: «mB» похоже на код camelCase.
+    answer_words = _TEXT_WORD_RE.findall(_URL_RE.sub(" ", answer))
+    return not (answer_words and all(word.lower() in _UNIT_WORDS for word in answer_words))
+
+
 # Вступление модели перед переводом и слово в источнике, при котором такое начало законно.
 # Голые «Хорошо», «Вот», «Пожалуйста» сюда не входят: это обычные переводы.
 _INTRO_PHRASES = (
     (re.compile(r"хорошо\s*[,!:]\s*вот\b"), None),
     (re.compile(r"вот\s+(?:ваш\s+|сам\s+)?перевод\b"), None),
+    (re.compile(r"i['\u2019]?m\s+ready\s+to\s+translate\b"), None),
     (re.compile(r"конечно\s*[,!:]"), r"course|sure|certainly|naturally|definitely"),
     (re.compile(r"перевод\s*:"), r"translat"),
     (re.compile(r"переведено\s*:"), r"translat"),
