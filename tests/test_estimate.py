@@ -79,6 +79,15 @@ class Count(unittest.TestCase):
         self.assertEqual(estimate.bucket("Opens the settings of this mod"), "4–14 слов")
         self.assertEqual(estimate.bucket(LONG), "15+ слов")
 
+    def test_loose_lang_file_is_one_by_one_by_default(self):
+        folder = os.path.join(self.base, "resourcepacks", "loose", "assets", "c", "lang")
+        os.makedirs(folder)
+        with open(os.path.join(folder, "en_us.json"), "w") as f:
+            json.dump({"x": "Wooden Door", "y": "Stone Wall"}, f)
+        e = self.run_estimate()
+        self.assertEqual(sum(e.to_fast_batched.values()), 0)
+        self.assertEqual(e.fast_batch_requests, 0)
+
     def test_loose_lang_file_goes_in_batches(self):
         folder = os.path.join(self.base, "resourcepacks", "loose", "assets", "c", "lang")
         os.makedirs(folder)

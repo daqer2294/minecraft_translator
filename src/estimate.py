@@ -130,7 +130,10 @@ class _CountingTranslator(Translator):
             self._seen.add(text)
             self.est.unique += 1
         strong = self._client_for_long_text(text) is not None
-        batched = in_batch_call and not strong and not _is_complex_text(text, self.complex_len_threshold)
+        batched = (
+            in_batch_call and self.batch_size > 1 and not strong
+            and not _is_complex_text(text, self.complex_len_threshold)
+        )
         with self._count_lock:
             (self.est.to_strong if strong else self.est.to_fast)[bucket(text)] += 1
             if batched:
