@@ -18,6 +18,7 @@ from .utils.markup import (
     foreign_latin_words,
     has_intro_or_raw_mask,
     has_mixed_script_word,
+    invented_tags,
     looks_hallucinated,
     mask,
     protected_code_changed,
@@ -530,6 +531,7 @@ class Translator:
             or has_intro_or_raw_mask(source, out)
             or bool(foreign_latin_words(source, out))
             or protected_code_changed(source, out)
+            or bool(invented_tags(source, out))
             or (self.strict and src_tokens != _extract_tokens(out))
         )
 

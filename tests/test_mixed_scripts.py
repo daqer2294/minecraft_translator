@@ -10,7 +10,7 @@ import unittest
 
 from src.translators import Translator
 from src.utils.cache import TranslationCache
-from src.utils.markup import foreign_latin_words, has_mixed_script_word
+from src.utils.markup import foreign_latin_words, has_mixed_script_word, invented_tags
 
 DAMAGED = [
     "Мinecraft", "Тwitch", "Лiberapay", "Вillage Butcher Chest", "Пink Plaque", "Хollow",
@@ -116,8 +116,9 @@ class Rejection(unittest.TestCase):
                 continue
             tr = make_translator(Scripted(lambda t: answer))
             tr.strict = False  # здесь проверяется только смесь алфавитов, а не совпадение разметки
-            # Слова ответа есть в источнике: придуманная латиница проверяется в test_foreign_latin_words.
-            source = " ".join(["Some source text", *foreign_latin_words("", answer)])
+            # Слова и теги ответа есть в источнике: они проверяются в test_foreign_latin_words и test_invented_tags.
+            # Теги в середине: с края строки маскирование снимает их и возвращает к ответу.
+            source = " ".join(["Some", *invented_tags("", answer), "source text", *foreign_latin_words("", answer)])
             self.assertEqual(tr.translate(source), answer.strip())
 
 

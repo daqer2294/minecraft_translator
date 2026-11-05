@@ -117,6 +117,44 @@ def protected_code_changed(source: str, answer: str) -> bool:
     return sorted(protected_code_tokens(source)) != sorted(protected_code_tokens(answer))
 
 
+# Тег: [слово], [/слово], <слово>, </слово>, можно со значением: [color=red], <font color=red>.
+# Подпись из нескольких слов, [[N]], [1.5] и %s сюда не подходят.
+_TAG_RE = re.compile(
+    r"(?<!\[)\[/?[^\W\d_][\w\-]*(?:=[^\]\n]*)?\](?!\])"
+    r"|</?[^\W\d_][\w\-:.]*(?:\s+[\w\-:.]+=[^<>\n]*)?\s*/?>"
+)
+_SQUARE_RE = re.compile(r"(?<!\[)\[[^\[\]\n]+\](?!\])")
+
+
+def invented_tags(source: str, answer: str) -> List[str]:
+    """
+    Теги из ответа, которых нет в источнике (регистр не важен): «ease вы[/ru]», «тик[е]».
+    Подпись в квадратных скобках модель вправе перевести: [disabled] → [выключено]. Такой тег
+    не считается, если вместо него из источника пропала другая подпись и он на языке ответа.
+    Закрывающий тег и угловые скобки не переводятся: <name> → <имя> это порча.
+    """
+    known = {tag.lower() for tag in _TAG_RE.findall(source)}
+    new = [tag for tag in _TAG_RE.findall(answer) if tag.lower() not in known]
+    if not new:
+        return []
+    returned = [tag.lower() for tag in _SQUARE_RE.findall(answer)]
+    translated = 0
+    for tag in _SQUARE_RE.findall(source):
+        if tag.lower() in returned:
+            returned.remove(tag.lower())
+        else:
+            translated += 1
+    cyrillic_answer = bool(_CYRILLIC_RE.search(answer))
+    found = []
+    for tag in new:
+        may_be_translation = tag[0] == "[" and tag[1] != "/" and (_CYRILLIC_RE.search(tag) or not cyrillic_answer)
+        if may_be_translation and translated:
+            translated -= 1
+        else:
+            found.append(tag)
+    return found
+
+
 # Вступление модели перед переводом и слово в источнике, при котором такое начало законно.
 # Голые «Хорошо», «Вот», «Пожалуйста» сюда не входят: это обычные переводы.
 _INTRO_PHRASES = (
