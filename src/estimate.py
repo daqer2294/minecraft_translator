@@ -114,6 +114,8 @@ class _CountingTranslator(Translator):
         self._seen: set = set()
         self._depth = threading.local()
         self._count_lock = threading.Lock()
+        # Порядок проходов на число строк и запросов не влияет, а считались бы они дважды.
+        self.skip_priority_pass = True
 
     def _classify(self, text: str, target_lang: str, in_batch_call: bool = False) -> None:
         with self._count_lock:

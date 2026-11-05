@@ -329,6 +329,43 @@ class Api:
         self._log(f"🎚 Тир модели: {tier}")
         return self._snapshot()
 
+    def build_from_cache(self) -> Dict[str, Any]:
+        """
+        Собрать пак из того, что уже есть в кэше, без модели. Можно во время перевода:
+        тогда пак кладётся в подпапку partial, чтобы не мешать идущему прогону.
+        """
+        inp = (self._state["input"] or "").strip()
+        if not inp or not os.path.isdir(os.path.abspath(os.path.expanduser(inp))):
+            self._set(message="Укажите входную папку.")
+            return self._snapshot()
+        inp = os.path.abspath(os.path.expanduser(inp))
+        out = self.resolve_output(self._state["output"])
+        if self._state["running"]:
+            out = os.path.join(out, "partial")
+        threading.Thread(target=self._run_build_from_cache, args=(inp, out, self._state["lang"]), daemon=True).start()
+        self._log(f"📦 Сборка пака из кэша: {inp} → {out}")
+        return self._snapshot()
+
+    def _run_build_from_cache(self, inp: str, out: str, target_lang: str):
+        class NoModel:
+            name = "cache-only"
+
+            def chat(self, messages, **kwargs):
+                raise RuntimeError("сборка из кэша не спрашивает модель")
+
+        try:
+            # Свежая копия кэша с диска: то, что идущий прогон уже записал.
+            tr = Translator(NoModel(), TranslationCache(config.DEFAULT_CACHE_PATH), strict=True, log=lambda s: None,
+                            target_lang=target_lang)
+            tr.cache_only = True
+            lines = []
+            mirrorer.mirror_translate_dir(inp, out, tr, log=lines.append, target_lang=target_lang)
+            for line in lines:
+                if line.startswith(("[PACK]", "[ERR", "[STOP")):
+                    self._log("📦 " + line)
+        except Exception as e:
+            self._log(f"❌ Сборка из кэша не удалась: {e}")
+
     def set_gpu_profile(self, profile: str) -> Dict[str, Any]:
         if profile not in factory.GPU_PROFILES:
             self._set(message=f"Неизвестный профиль: {profile}")

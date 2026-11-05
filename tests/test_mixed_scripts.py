@@ -84,19 +84,25 @@ class Rejection(unittest.TestCase):
         tr = make_translator(Scripted(lambda t: "Сhare Настройки С:"))
         self.assertEqual(tr.translate("§aShare Settings With: %s"), "§aShare Settings With: %s")
 
-    def test_rejected_string_is_asked_again(self):
+    def test_rejected_string_is_asked_again_in_the_next_run_only(self):
         client = Scripted(lambda t: "Мinecraft")
         tr = make_translator(client)
         tr.translate("Minecraft mod")
         tr.translate("Minecraft mod")
+        self.assertEqual(client.calls, 1)
+        nxt = Translator(client, tr.cache, strict=True, log=lambda s: None, target_lang="ru_ru")
+        nxt.max_attempts = 1
+        nxt.translate("Minecraft mod")
         self.assertEqual(client.calls, 2)
 
     def test_next_run_with_clean_answer_is_cached(self):
         tr = make_translator(Scripted(lambda t: "Мinecraft"))
         tr.translate("Minecraft mod")
-        tr.client = Scripted(lambda t: "Мод Minecraft")
-        self.assertEqual(tr.translate("Minecraft mod"), "Мод Minecraft")
-        self.assertEqual(tr.cache.get("Minecraft mod", "ru_ru"), "Мод Minecraft")
+        nxt = Translator(Scripted(lambda t: "Мод Minecraft"), tr.cache, strict=True, log=lambda s: None,
+                         target_lang="ru_ru")
+        nxt.max_attempts = 1
+        self.assertEqual(nxt.translate("Minecraft mod"), "Мод Minecraft")
+        self.assertEqual(nxt.cache.get("Minecraft mod", "ru_ru"), "Мод Minecraft")
 
     def test_batch_item_rolls_back_and_others_stay(self):
         tr = make_translator(Scripted(lambda t: "Мinecraft" if t == "Bad item" else "ПЕР " + t))

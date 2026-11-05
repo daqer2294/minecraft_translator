@@ -62,6 +62,9 @@ LONG_TEXT_MIN_WORDS = int(os.environ.get("LONG_TEXT_MIN_WORDS", "15"))
 # Словарь терминов из языковых файлов сборки: в запрос идут только термины самой строки.
 GLOSSARY_ENABLED = os.environ.get("GLOSSARY_ENABLED", "1") != "0"
 
+# Сначала переводить по всем модам названия, меню и подсказки, потом описания и книги.
+PRIORITY_FIRST = os.environ.get("PRIORITY_FIRST", "1") != "0"
+
 # Локальный инференс (llama.cpp / GGUF)
 LOCAL_MODEL_PATH = os.environ.get("LOCAL_MODEL_PATH", "")       # путь к .gguf (in-process)
 LOCAL_SERVER_URL = os.environ.get("LOCAL_SERVER_URL", "")       # URL llama-server (server mode)

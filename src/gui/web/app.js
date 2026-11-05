@@ -89,6 +89,7 @@ function wireEvents() {
   $("#pauseBtn").addEventListener("click", () => call("pause").then(render));
   $("#resumeBtn").addEventListener("click", () => call("resume").then(render));
   $("#stopBtn").addEventListener("click", () => call("stop").then(render));
+  $("#packBtn").addEventListener("click", () => call("build_from_cache").then(render));
 
   $("#dlStart").addEventListener("click", onDownloadConfirm);
   $("#dlCancel").addEventListener("click", () => { closeDlModal(); });        // «Позже»

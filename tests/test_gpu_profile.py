@@ -62,7 +62,9 @@ class Overlap(unittest.TestCase):
         self.assertEqual(sorted(strong.seen), sorted([LONG, LONG2]))
         self.assertEqual(len(fast.seen), 3)
 
+    @mock.patch.object(config, "PRIORITY_FIRST", False)
     def test_overlap_saves_time_when_models_do_not_share_a_device(self):
+        # Без прохода «сначала интерфейс»: здесь важно, что короткие и длинные идут вперемешку.
         t = time.perf_counter()
         run(False, Model("fast", 0.1), Model("strong", 0.1))
         sequential = time.perf_counter() - t

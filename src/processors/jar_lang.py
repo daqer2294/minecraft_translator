@@ -9,6 +9,7 @@ from typing import Callable, Dict, List, Optional
 
 from .. import config
 from ..utils.helpers import parse_lang_bytes
+from ..utils.markup import text_word_count
 from .lang_json import has_official_translation, keys_to_translate, merge_lang, source_text
 
 _LANG_MEMBER = re.compile(r"(assets/[^/]+/lang/)([A-Za-z_]+)\.json$")
@@ -17,9 +18,25 @@ _VANILLA_LANG = "assets/minecraft/lang/"
 _NESTED_JARS_DIR = "META-INF/jars/"
 _MAX_NESTING = 4
 
+# Сначала то, что видно сразу: названия предметов, блоков, меню и подсказки загрузки.
+# Описания, всплывающие тексты и книги потом.
+_LATER_KEY_RE = re.compile(r"(?:^|\.)(?:desc|description|lore|flavor|flavour|tooltip\w*|info|text|page\w*|book\w*)(?:\.|$)", re.I)
+PRIORITY_MAX_WORDS = 14
+
+
+def is_priority_key(key: str, text: str) -> bool:
+    """Короткая строка интерфейса или подсказка загрузки (tip.*). Описания и книги не входят."""
+    if key.startswith("tip.") or ".tip." in key:
+        return True
+    return text_word_count(text) <= PRIORITY_MAX_WORDS and not _LATER_KEY_RE.search(key)
+
 
 def _translate_strings(sources: dict, keys: List[str], translator, target_lang: str, cancel_event) -> Dict[str, str]:
     translated = {}
+    # Первый проход по сборке: только строки интерфейса, остальное ждёт своей очереди.
+    key_filter = getattr(translator, "key_filter", None)
+    if key_filter is not None:
+        keys = [k for k in keys if key_filter(k, sources[k])]
     # Профиль «fast_cpu»: длинные тексты уходят сильной модели в отдельном потоке, пока основная
     # переводит остальное. Имеет смысл, только когда модели не делят одно устройство.
     background = {}

@@ -76,7 +76,12 @@ class Rejection(unittest.TestCase):
         client = Scripted(lambda t: "至少")
         tr = make_translator(client)
         tr.translate("Needs more")
+        # В том же прогоне не спрашиваем: при температуре 0 ответ был бы тем же.
         tr.translate("Needs more")
+        self.assertEqual(client.calls, 1)
+        nxt = Translator(client, tr.cache, strict=True, log=lambda s: None, target_lang="ru_ru")
+        nxt.max_attempts = 1
+        nxt.translate("Needs more")
         self.assertEqual(client.calls, 2)
 
     def test_chinese_target_keeps_the_answer(self):

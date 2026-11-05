@@ -397,10 +397,16 @@ def _second_pass(translator, strong_client, log, on_total, on_tick, cancel_event
     валидатор, брак снова не кэшируется. Возвращает число исправленных строк.
     """
     pending = translator.take_rejected()
+    clear = getattr(translator, "clear_pending", None)
     if not pending:
+        if clear:
+            clear()
         return 0
     client, reason = strong_client()
     if client is None:
+        # Сильной модели нет: в следующий прогон эти строки снова спросят основную.
+        if clear:
+            clear()
         log(f"[PASS2] Пропущен: {len(pending)} строк с браком остаются на английском. {reason}")
         return 0
 
@@ -419,6 +425,8 @@ def _second_pass(translator, strong_client, log, on_total, on_tick, cancel_event
         if on_tick:
             on_tick(*((1, 1, 0, 0) if good else (1, 0, 0, 1)))
     translator.take_rejected()
+    if clear:
+        clear()
     log(f"[PASS2] Исправлено {fixed} из {len(pending)}, на английском осталось {len(pending) - fixed}.")
     return fixed
 
@@ -552,6 +560,35 @@ def _mirror_translate_dir(
 
     total = len(candidates) + len(jar_ready)
 
+    # Брак основной модели переживает остановку прогона до второго прохода.
+    if write and hasattr(translator, "persist_pending"):
+        translator.persist_pending = True
+
+    # Сначала по всем модам то, что видно сразу. Перевод остаётся в кэше, пак собирается ниже как обычно.
+    if (
+        write and config.PRIORITY_FIRST and jar_ready and hasattr(translator, "key_filter")
+        and not getattr(translator, "skip_priority_pass", False)
+    ):
+        log(f"[PRIORITY] Сначала названия, меню и подсказки: {len(jar_ready)} jar")
+        translator.key_filter = jar_lang.is_priority_key
+        try:
+            for i, jp in enumerate(jar_ready, 1):
+                if _cancelled(cancel_event):
+                    break
+                log(f"[PRIORITY] {i}/{len(jar_ready)} {os.path.basename(jp)}")
+                try:
+                    jar_lang.process_jar_lang(
+                        jp, None, translator, log=lambda s: None, write=False, target_lang=target_lang,
+                        cancel_event=cancel_event, include_nested=include_nested,
+                    )
+                except Exception as e:
+                    log(f"[ERR][priority] {os.path.basename(jp)}: {_error_text(e)}")
+        finally:
+            translator.key_filter = None
+        if _cancelled(cancel_event):
+            log("[STOP] Остановлено: готовые строки сохранены в кэше.")
+            return
+
     # Ничего не нашли — объясняем ПОЧЕМУ (доступ vs пустая/не та папка), а не
     # молча «scanned: 0».
     if total == 0:
@@ -670,6 +707,10 @@ def _mirror_translate_dir(
         return
 
     # 5) Второй проход: брак основной модели переводит сильная
+    if write and strong_client is None and hasattr(translator, "clear_pending"):
+        # Второго прохода не будет: список отложенных строк закрывается сразу.
+        translator.take_rejected()
+        translator.clear_pending()
     if write and strong_client is not None:
         fixed = _second_pass(translator, strong_client, log, on_total, on_tick, cancel_event)
         if _cancelled(cancel_event):

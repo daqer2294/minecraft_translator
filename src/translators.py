@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import threading
 import time
@@ -29,6 +30,7 @@ from .utils.markup import (
     unmask,
 )
 from .glossary import GLOSSARY_NOTE
+from .utils.helpers import replace_file
 from .utils.prompt_leak import PromptLeakDetector
 from .llm.base import LLMClient, RateLimitError, LLMTimeoutError, LLMCancelledError, LLMTruncatedError
 from . import config
@@ -267,8 +269,17 @@ class Translator:
         self.glossary = None
         # Длинные тексты в jar переводить сильной моделью одновременно с остальными (профиль fast_cpu).
         self.overlap_strong = False
+        # Фильтр ключей jar на проход «сначала интерфейс» (mirrorer). None: все ключи.
+        self.key_filter = None
         # Только кэш, без запросов: для пересборки вывода после второго прохода.
         self.cache_only = False
+        # Брак основной модели, ещё не переведённый вторым проходом, переживает остановку:
+        # после перезапуска такие строки сразу идут во второй проход, основную не спрашиваем снова.
+        self._pending_path = f"{cache.path}.pending.json" if getattr(cache, "path", "") else ""
+        self._pending_open = self._load_pending()
+        self._pending_unsaved = 0
+        # Список пишется только во время прогона по сборке (mirrorer): там его закроет второй проход.
+        self.persist_pending = False
         # Событие отмены: прокидывается в client.chat() и рвёт зависший HTTP-запрос
         # к модели по нажатию «Стоп» (а не ждёт границы файла).
         self.cancel_event = cancel_event
@@ -303,6 +314,40 @@ class Translator:
     def _last_error(self, error: Optional[Exception]) -> None:
         self._thread_state.last_error = error
 
+    def _load_pending(self) -> set:
+        if not self._pending_path or not os.path.isfile(self._pending_path):
+            return set()
+        try:
+            with open(self._pending_path, encoding="utf-8") as f:
+                return {(text, lang) for lang, texts in json.load(f).items() for text in texts}
+        except (OSError, ValueError, AttributeError):
+            return set()
+
+    def _save_pending(self) -> None:
+        # Сборка из кэша идёт рядом с переводом и не должна переписать его список.
+        if not self._pending_path or self.cache_only or not self.persist_pending:
+            return
+        with self._rejected_lock:
+            items = set(self._rejected) | self._pending_open
+            self._pending_unsaved = 0
+        if not items:
+            if os.path.exists(self._pending_path):
+                os.remove(self._pending_path)
+            return
+        data: Dict[str, List[str]] = {}
+        for text, lang in sorted(items):
+            data.setdefault(lang, []).append(text)
+        tmp = self._pending_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        replace_file(tmp, self._pending_path)
+
+    def clear_pending(self) -> None:
+        """Второй проход закончен: список ожидающих строк больше не нужен."""
+        with self._rejected_lock:
+            self._pending_open.clear()
+        self._save_pending()
+
     def take_rejected(self) -> List[Tuple[str, str]]:
         """Отдаёт накопленные (строка, язык) с браком модели и очищает список."""
         with self._rejected_lock:
@@ -313,6 +358,10 @@ class Translator:
     def _note_rejected(self, text: str, target_lang: str) -> None:
         with self._rejected_lock:
             self._rejected[(text, target_lang)] = None
+            self._pending_unsaved += 1
+            due = self._pending_unsaved >= 50
+        if due:
+            self._save_pending()
 
     def _is_model_fault(self, out: Optional[str]) -> bool:
         """Брак самой модели. Обрыв связи, таймаут и «Стоп» сюда не входят."""
@@ -379,6 +428,7 @@ class Translator:
         """Принудительно записать кэш на диск (R-6)."""
         try:
             self.cache.flush()
+            self._save_pending()
         except Exception:
             pass
 
@@ -431,6 +481,16 @@ class Translator:
             return cached
         if self.cache_only:
             return text
+        # Брак уже записан в этом прогоне или в прошлом: основную модель о том же не спрашиваем,
+        # строку переведёт второй проход. Так проход «сначала интерфейс» и повторы строки между
+        # модами не стоят лишних запросов.
+        if client is None:
+            key = (text, target_lang)
+            with self._rejected_lock:
+                known = key in self._rejected or key in self._pending_open
+            if known:
+                self._note_rejected(text, target_lang)
+                return text
 
         # если клиент не задан явно — выбираем по сложности строки (STEP 5)
         use_client = client or self._client_for_long_text(text) or self._pick_client(text)
