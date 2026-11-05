@@ -200,6 +200,36 @@ def answer_without_cyrillic(source: str, answer: str, target_lang: str) -> bool:
     return not (answer_words and all(word.lower() in _UNIT_WORDS for word in answer_words))
 
 
+# Недоперевод: английское слово из источника внутри русского текста, «Т target licked», «ensnares цели».
+# Слова в этом списке законны в русском тексте: логика, названия функций плавности и жаргон игры.
+LEFTOVER_MIN_LETTERS = 4
+LEFTOVER_ALLOWED = {
+    "true", "false", "null", "ease", "expo", "circ", "quint", "quart", "quad", "sine", "cubic", "elastic", "bounce",
+    "back", "vanilla",
+}
+_QUOTED_RE = re.compile(r"\"[^\"]*\"|«[^»]*»|“[^”]*”|`[^`]*`|(?<!\w)'[^']*'(?!\w)")
+# Значения параметра: «Типы: both, world, server», «<normal|lazy|worried>».
+_VALUE_LIST_RE = re.compile(r"\b[a-z]+(?:\s*[,|]\s*[a-z]+){2,}\b")
+_LEFTOVER_WORD_RE = re.compile(
+    r"(?<![\w'’./:=|<\-])[a-z]{%d,}(?![\w'’/=|>\-(]|[.:]\w)" % LEFTOVER_MIN_LETTERS
+)
+# Имя настройки с номером: «§ahour.<n>=<list>». После снятия разметки от него осталось бы обычное слово.
+_NUMBERED_SETTING_RE = re.compile(r"[a-z_]+\.<[^<>\n]*>")
+_SOURCE_WORD_RE = re.compile("[A-Za-z]+")
+
+
+def leftover_english_words(source: str, answer: str, target_lang: str) -> List[str]:
+    """
+    Строчные английские слова от 4 букв из источника, которые стоят в русском ответе как обычные
+    слова. Не считаются код, ссылки, кавычки, имена с большой буквы и списки значений.
+    """
+    if not is_cyrillic_lang(target_lang) or not _CYRILLIC_RE.search(answer):
+        return []
+    known = {word.lower() for word in _SOURCE_WORD_RE.findall(MARKUP_RE.sub(" ", source))}
+    text = _VALUE_LIST_RE.sub(" ", _QUOTED_RE.sub(" ", _plain_text(_NUMBERED_SETTING_RE.sub(" ", answer))))
+    return [w for w in _LEFTOVER_WORD_RE.findall(text) if w in known and w not in LEFTOVER_ALLOWED]
+
+
 # Вступление модели перед переводом и слово в источнике, при котором такое начало законно.
 # Голые «Хорошо», «Вот», «Пожалуйста» сюда не входят: это обычные переводы.
 _INTRO_PHRASES = (

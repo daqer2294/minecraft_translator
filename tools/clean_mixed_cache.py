@@ -2,6 +2,7 @@
 Удаляет из кэша переводы, которые не проходят текущие проверки ответа модели:
 смесь алфавитов, иероглифы, текст наших промптов, выдуманный ответ на короткую строку,
 вступление или нераскрытая маска, латинское слово не из источника, ответ без кириллицы,
+английское слово из источника в русском тексте,
 изменённая команда или идентификатор, выдуманный тег, потеря или искажение разметки и кода.
 
 По умолчанию только показывает, что будет удалено и почему. С --apply делает бэкап
@@ -38,6 +39,7 @@ from src.utils.markup import (
     has_intro_or_raw_mask,
     has_mixed_script_word,
     invented_tags,
+    leftover_english_words,
     looks_hallucinated,
     protected_code_changed,
     protected_code_tokens,
@@ -81,6 +83,9 @@ def rejection_reason(source: str, value: str, lang: str) -> Optional[str]:
         return "вступление или нераскрытая маска"
     if answer_without_cyrillic(source, value, lang):
         return "ответ без кириллицы"
+    leftover = leftover_english_words(source, value, lang)
+    if leftover:
+        return f"английское слово из источника: {leftover[:3]}"
     words = foreign_latin_words(source, value)
     if words:
         return f"латинское слово не из источника: {words[:3]}"

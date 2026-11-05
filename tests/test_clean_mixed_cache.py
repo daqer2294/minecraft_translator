@@ -48,7 +48,7 @@ class Reasons(unittest.TestCase):
 
     def test_prompt_leak_is_named(self):
         self.assertIn("текст промпта", rejection_reason("Strips codes", "Токены like и stand for markup", "ru_ru"))
-        self.assertIsNone(rejection_reason("Token markup", "Токен markup", "ru_ru"))
+        self.assertIsNone(rejection_reason("Token Markup", "Токен Markup", "ru_ru"))
 
     def test_invented_answer_is_named(self):
         self.assertIn("выдуманный", rejection_reason("PKMNCC", "Покемонов не существует в Minecraft.", "ru_ru"))

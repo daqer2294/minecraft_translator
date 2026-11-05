@@ -20,6 +20,7 @@ from .utils.markup import (
     has_intro_or_raw_mask,
     has_mixed_script_word,
     invented_tags,
+    leftover_english_words,
     looks_hallucinated,
     mask,
     protected_code_changed,
@@ -576,6 +577,7 @@ class Translator:
             or protected_code_changed(source, out)
             or bool(invented_tags(source, out))
             or answer_without_cyrillic(source, out, target_lang)
+            or bool(leftover_english_words(source, out, target_lang))
             or self._glossary_rejects(source, out)
             or (self.strict and src_tokens != _extract_tokens(out))
         )
