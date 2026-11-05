@@ -48,6 +48,24 @@ class Spec(unittest.TestCase):
         self.assertIn("Compress-Archive -Path dist/MinecraftTranslator -DestinationPath", ci)
         self.assertNotIn("Copy-Item dist/MinecraftTranslator.exe", ci)
 
+    def test_cuda_variant_is_optional_and_inspected(self):
+        import yaml
+        with open(os.path.join(ROOT, ".github", "workflows", "build.yml"), encoding="utf-8") as f:
+            ci = yaml.safe_load(f)
+        job = ci["jobs"]["build"]
+        legs = {(x["platform"], x["variant"]): x for x in job["strategy"]["matrix"]["include"]}
+        cuda = legs[("win", "-cuda")]
+        self.assertTrue(cuda["optional"])
+        self.assertEqual(cuda["reqfile"], "requirements-win-cuda.txt")
+        self.assertEqual(legs[("win", "")]["reqfile"], "requirements-win.txt")
+        steps = {st["name"]: st for st in job["steps"]}
+        self.assertEqual(steps["(CUDA) inspect llama_cpp libraries"]["if"], "matrix.variant == '-cuda'")
+        self.assertIn("matrix.variant != '-cuda'", steps["Verify local inference import (fail job if broken)"]["if"])
+        with open(os.path.join(ROOT, "requirements-win-cuda.txt"), encoding="utf-8") as f:
+            req = f.read()
+        self.assertIn("/whl/cu124", req)
+        self.assertIn("llama-cpp-python==0.3.30", req)
+
     def test_upx_is_off(self):
         self.assertIn("upx=False", self.src)
         self.assertNotIn("upx=True", self.src)

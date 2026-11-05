@@ -27,6 +27,16 @@ jobs:
             spec: MinecraftTranslator-win.spec
             reqfile: requirements-win.txt
             variant: ""
+          # Windows с NVIDIA: то же, но колесо CUDA 12.4. Пробная: на раннере нет GPU и
+          # CUDA Toolkit, поэтому её сбой не валит сборку, а шаг ниже показывает, какие DLL пришли.
+          - os: windows-latest
+            platform: win
+            arch: x64
+            spec: MinecraftTranslator-win.spec
+            reqfile: requirements-win-cuda.txt
+            variant: "-cuda"
+            optional: true
+            timeout_minutes: 60
           - os: macos-14         # Apple Silicon, Metal-колесо
             platform: mac
             arch: arm64
@@ -78,8 +88,24 @@ jobs:
       # ЯВНАЯ проверка: без рабочего import llama_cpp job падает с понятным
       # сообщением — чтобы никогда не выпустить «полную» сборку, где local не
       # работает. (Заменяет прежний continue-on-error.)
+      # Какие библиотеки пришли с CUDA-колесом и грузится ли оно без CUDA Toolkit.
+      - name: (CUDA) inspect llama_cpp libraries
+        if: matrix.variant == '-cuda'
+        shell: python
+        run: |
+          import glob, importlib.util, os
+          spec = importlib.util.find_spec("llama_cpp")
+          lib = os.path.join(os.path.dirname(spec.origin), "lib")
+          for path in sorted(glob.glob(os.path.join(lib, "*"))):
+              print(os.path.basename(path), os.path.getsize(path))
+          try:
+              import llama_cpp
+              print("import OK", llama_cpp.__version__, "gpu offload:", llama_cpp.llama_supports_gpu_offload())
+          except Exception as e:
+              print("::warning::llama_cpp does not load on the runner (no GPU, no CUDA Toolkit):", e)
+
       - name: Verify local inference import (fail job if broken)
-        if: matrix.reqfile != ''
+        if: matrix.reqfile != '' && matrix.variant != '-cuda'
         shell: python
         run: |
           import sys

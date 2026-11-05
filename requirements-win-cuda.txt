@@ -1,0 +1,9 @@
+# Локальный инференс на Windows с NVIDIA (CUDA 12.4), пребилт-колесо.
+#
+# Колесо 0.3.30 для win_amd64 есть на индексе cu124 (проверено по списку файлов индекса).
+# Входят ли в него cudart64_12.dll и cublas64_12.dll, или нужен установленный CUDA Toolkit,
+# по документации не ясно: это показывает шаг «(CUDA) inspect llama_cpp libraries» в CI.
+#   pip install --only-binary=llama-cpp-python -r requirements-win-cuda.txt
+-r requirements.txt
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu124
+llama-cpp-python==0.3.30
