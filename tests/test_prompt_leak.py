@@ -13,7 +13,7 @@ from src.translators import (
     Translator,
 )
 from src.utils.cache import TranslationCache
-from src.utils.markup import MASK_PROMPT_NOTE, MASK_PROMPT_NOTE_RU
+from src.utils.markup import MASK_PROMPT_NOTE, MASK_PROMPT_NOTE_RU, foreign_latin_words
 from src.utils.prompt_leak import PromptLeakDetector
 
 REAL_LEAKS = [
@@ -159,7 +159,8 @@ class Translation(unittest.TestCase):
 
     def test_normal_translation_with_prompt_words_in_source_is_kept(self):
         for source, answer in NORMAL:
-            if "%" in source:
+            # Слово, которого нет в источнике, бракует другой валидатор: здесь проверяется только утечка.
+            if "%" in source or foreign_latin_words(source, answer):
                 continue
             tr = make_translator(lambda t: answer)
             self.assertEqual(tr.translate(source), answer, source)

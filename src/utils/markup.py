@@ -110,6 +110,35 @@ def has_intro_or_raw_mask(source: str, answer: str) -> bool:
     )
 
 
+# Английское слово, оставшееся в русском ответе: «Цветные crayones», «для infliction damage».
+# Слово должно быть не короче этого числа букв: mB, HP и подобные не считаются.
+FOREIGN_WORD_MIN_LETTERS = 4
+_LATIN_WORD_RE = re.compile("[A-Za-z\u00c0-\u024f]+")
+_RUSSIAN_ENDING_RE = re.compile("['\u2019][\u0400-\u052f]")
+
+
+def foreign_latin_words(source: str, answer: str) -> List[str]:
+    """
+    Латинские слова из ответа с кириллицей, которых нет в источнике (регистр не важен).
+    Разметка и код не считаются. Не считается и термин, оформленный по-русски:
+    с окончанием через апостроф («MacBook'ах») или целиком в скобках («(mipmapping)»).
+    """
+    if not _CYRILLIC_RE.search(answer):
+        return []
+    known = {w.lower() for w in _LATIN_WORD_RE.findall(MARKUP_RE.sub(" ", source))}
+    text = MARKUP_RE.sub(" ", answer)
+    found = []
+    for match in _LATIN_WORD_RE.finditer(text):
+        word = match.group(0)
+        if len(word) < FOREIGN_WORD_MIN_LETTERS or word.lower() in known:
+            continue
+        before, after = text[max(0, match.start() - 1):match.start()], text[match.end():match.end() + 2]
+        if _RUSSIAN_ENDING_RE.match(after) or (before == "(" and after[:1] == ")"):
+            continue
+        found.append(word)
+    return found
+
+
 # Выдуманный ответ на короткую строку: «PKMNCC» → «Покемонов не существует в Minecraft.»
 # Числа проверены на всём кэше: они ловят все известные случаи без ложных срабатываний.
 HALLUCINATION_MAX_SOURCE_WORDS = 6

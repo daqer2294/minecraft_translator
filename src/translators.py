@@ -15,6 +15,7 @@ from .utils.markup import (
     MARKUP_RE,
     MASK_PROMPT_NOTE,
     MASK_PROMPT_NOTE_RU,
+    foreign_latin_words,
     has_intro_or_raw_mask,
     has_mixed_script_word,
     looks_hallucinated,
@@ -526,6 +527,7 @@ class Translator:
             or bool(PROMPT_LEAK.explain(out, source))
             or looks_hallucinated(source, out)
             or has_intro_or_raw_mask(source, out)
+            or bool(foreign_latin_words(source, out))
             or (self.strict and src_tokens != _extract_tokens(out))
         )
 
