@@ -34,6 +34,20 @@ class Spec(unittest.TestCase):
         self.assertIn("MinecraftTranslator.exe", text)
         self.assertIn(__version__, text)
 
+    def test_folder_build_not_onefile(self):
+        tree = ast.parse(self.src)
+        calls = {n.func.id: n for n in ast.walk(tree) if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+        self.assertIn("COLLECT", calls)
+        exe = calls["EXE"]
+        self.assertTrue(any(k.arg == "exclude_binaries" and k.value.value is True for k in exe.keywords))
+        self.assertNotIn("a.binaries", [ast.unparse(a) for a in exe.args])
+
+    def test_ci_packs_the_folder(self):
+        with open(os.path.join(ROOT, ".github", "workflows", "build.yml"), encoding="utf-8") as f:
+            ci = f.read()
+        self.assertIn("Compress-Archive -Path dist/MinecraftTranslator -DestinationPath", ci)
+        self.assertNotIn("Copy-Item dist/MinecraftTranslator.exe", ci)
+
     def test_upx_is_off(self):
         self.assertIn("upx=False", self.src)
         self.assertNotIn("upx=True", self.src)

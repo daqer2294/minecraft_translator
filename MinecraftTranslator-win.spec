@@ -1,7 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller-спека — Windows (onefile .exe, без code signing).
+# PyInstaller-спека — Windows (папка onedir с MinecraftTranslator.exe, без code signing).
 #
-# Собирает единый .exe и БУНДЛИТ статические веб-ассеты (src/gui/web/*), чтобы
+# Папка, а не один exe: onefile при каждом запуске распаковывает себя во временную
+# папку и грузит оттуда DLL. Это медленно и чаще вызывает ложные срабатывания антивирусов.
+#
+# Собирает exe и БУНДЛИТ статические веб-ассеты (src/gui/web/*), чтобы
 # окно pywebview грузило index.html из exe. Backend WebView2 (EdgeChromium)
 # подтягивается pywebview автоматически при наличии pythonnet.
 #
@@ -81,10 +84,8 @@ pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.zipfiles,
-    a.datas,
     [],
+    exclude_binaries=True,
     name="MinecraftTranslator",
     debug=False,
     bootloader_ignore_signals=False,
@@ -92,7 +93,6 @@ exe = EXE(
     # UPX выключен: сжатый им exe чаще принимают за вирус.
     upx=False,
     upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,          # оконное приложение
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -100,4 +100,15 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     version=version_info,
+)
+
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=False,
+    upx_exclude=[],
+    name="MinecraftTranslator",
 )

@@ -97,13 +97,15 @@ jobs:
         run: pyinstaller --noconfirm --clean ${{ matrix.spec }}
 
       # ---- Packaging ----
-      - name: (Windows) package exe + zip
+      # Сборка Windows теперь папка (onedir): в архиве папка MinecraftTranslator с exe внутри.
+      - name: (Windows) package folder into zip
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $base = "MinecraftTranslator-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.variant }}"
-          Copy-Item dist/MinecraftTranslator.exe "$base.exe"
-          Compress-Archive -Path "$base.exe" -DestinationPath "$base.zip" -Force
+          if (-not (Test-Path dist/MinecraftTranslator/MinecraftTranslator.exe)) { throw "exe not found in dist/MinecraftTranslator" }
+          Compress-Archive -Path dist/MinecraftTranslator -DestinationPath "$base.zip" -Force
+          Get-ChildItem dist/MinecraftTranslator -Recurse -File | Measure-Object -Property Length -Sum | ForEach-Object { "files: $($_.Count), bytes: $($_.Sum)" }
 
       - name: (macOS) package .app into .dmg + .zip
         if: runner.os == 'macOS'

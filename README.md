@@ -42,7 +42,7 @@ Minecraft Translator — приложение с простым интерфей
 
 | Платформа | Файл | Локальный перевод |
 |---|---|---|
-| Windows 10/11 (x64) | `MinecraftTranslator-win-x64.exe` / `.zip` | ✅ есть (CPU) |
+| Windows 10/11 (x64) | `MinecraftTranslator-win-x64.zip` (папка, запуск `MinecraftTranslator.exe`) | ✅ есть (CPU) |
 | macOS Apple Silicon (M1–M4) | `MinecraftTranslator-mac-arm64.dmg` / `.zip` | ✅ есть (Metal) |
 | macOS Intel (x86_64) | `MinecraftTranslator-mac-x64-external-only.dmg` / `.zip` | ⚠️ нет — только external / hybrid |
 
@@ -224,7 +224,7 @@ Prebuilt binaries are on the releases page:
 
 | Platform | File | Local translation |
 |---|---|---|
-| Windows 10/11 (x64) | `MinecraftTranslator-win-x64.exe` / `.zip` | ✅ yes (CPU) |
+| Windows 10/11 (x64) | `MinecraftTranslator-win-x64.zip` (folder, run `MinecraftTranslator.exe`) | ✅ yes (CPU) |
 | macOS Apple Silicon (M1–M4) | `MinecraftTranslator-mac-arm64.dmg` / `.zip` | ✅ yes (Metal) |
 | macOS Intel (x86_64) | `MinecraftTranslator-mac-x64-external-only.dmg` / `.zip` | ⚠️ no — external / hybrid only |
 
