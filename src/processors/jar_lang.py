@@ -4,6 +4,7 @@ import io
 import os
 import re
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Optional
 
 from .. import config
@@ -19,7 +20,18 @@ _MAX_NESTING = 4
 
 def _translate_strings(sources: dict, keys: List[str], translator, target_lang: str, cancel_event) -> Dict[str, str]:
     translated = {}
+    # Профиль «fast_cpu»: длинные тексты уходят сильной модели в отдельном потоке, пока основная
+    # переводит остальное. Имеет смысл, только когда модели не делят одно устройство.
+    background = {}
+    if getattr(translator, "overlap_strong", False):
+        long_keys = [k for k in keys if translator._client_for_long_text(sources[k]) is not None]
+        if long_keys:
+            pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="strong")
+            background = {k: pool.submit(translator.translate, sources[k], target_lang=target_lang) for k in long_keys}
+            pool.shutdown(wait=False)
     for k in keys:
+        if k in background:
+            continue
         if cancel_event is not None and cancel_event.is_set():
             break
         try:
@@ -27,6 +39,13 @@ def _translate_strings(sources: dict, keys: List[str], translator, target_lang: 
         except Exception:
             # Сбой на строке: ключ останется без перевода, игра покажет свой текст.
             translated[k] = sources[k]
+    for k, future in background.items():
+        try:
+            translated[k] = future.result()
+        except Exception:
+            translated[k] = sources[k]
+    # Порядок ключей как в файле: от него зависит порядок в паке.
+    return {k: translated[k] for k in keys if k in translated}
     return translated
 
 

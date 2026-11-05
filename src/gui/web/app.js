@@ -71,6 +71,7 @@ function wireEvents() {
   $("#dryRun").addEventListener("change", (e) => call("set_dry", e.target.checked).then(render));
   $("#langSel").addEventListener("change", (e) => call("set_lang", e.target.value).then(render));
   $("#tierSel").addEventListener("change", (e) => call("set_tier", e.target.value).then(render));
+  $("#gpuProfileSel").addEventListener("change", (e) => call("set_gpu_profile", e.target.value).then(render));
   $("#rescanBtn").addEventListener("click", () => call("rescan_hardware").then(render));
   $("#saveKey").addEventListener("click", () => call("set_key", $("#apiKey").value).then(render));
 
@@ -253,6 +254,7 @@ function render(state) {
   $("#stSkip").textContent = state.skip;
   $("#stErr").textContent = state.err;
   $("#stSpeed").textContent = state.speed ? state.speed + "/с" : "—";
+  if (state.gpu_profile) $("#gpuProfileSel").value = state.gpu_profile;
   const est = $("#estimateBox");
   est.hidden = !(state.estimate && state.estimate.length);
   if (!est.hidden) est.textContent = state.estimate.join("\n");

@@ -265,6 +265,8 @@ class Translator:
         self._long_client: Optional[LLMClient] = None
         # Словарь терминов сборки. Задаётся на прогон, см. set_glossary.
         self.glossary = None
+        # Длинные тексты в jar переводить сильной моделью одновременно с остальными (профиль fast_cpu).
+        self.overlap_strong = False
         # Только кэш, без запросов: для пересборки вывода после второго прохода.
         self.cache_only = False
         # Событие отмены: прокидывается в client.chat() и рвёт зависший HTTP-запрос

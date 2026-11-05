@@ -71,7 +71,19 @@ def _make_local_light(cfg) -> LocalLlamaCppClient:
         model_path=path,
         model=(spec.id if spec else cfg.local_model),
         prompt_cache=cfg.prompt_cache,
+        n_gpu_layers=fast_gpu_layers(cfg),
     )
+
+
+GPU_PROFILES = {
+    "auto": "Как обычно: основная модель на видеокарте, если она есть",
+    "fast_cpu": "Основная модель на процессоре, видеокарта под сильную; длинные тексты идут ей одновременно",
+}
+
+
+def fast_gpu_layers(cfg) -> Optional[int]:
+    """Слои основной модели на GPU. None: автоопределение, как раньше; 0: только процессор."""
+    return 0 if getattr(cfg, "gpu_profile", "auto") == "fast_cpu" else None
 
 
 def _make_local_standard(cfg) -> Optional[LocalLlamaCppClient]:

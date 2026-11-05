@@ -117,6 +117,8 @@ class Api:
             "lang": getattr(config, "TARGET_LANG", "ru_ru"),
             "mode": getattr(config.PROVIDER, "mode", "local"),
             "tier": default_tier,
+            "gpu_profile": getattr(config.PROVIDER, "gpu_profile", "auto"),
+            "gpu_profiles": factory.GPU_PROFILES,
             "key_present": bool(config.OPENAI_API_KEY),
             # прогресс перевода
             "total": 0, "done": 0, "ok": 0, "err": 0, "skip": 0,
@@ -325,6 +327,15 @@ class Api:
         self._set(tier=tier)
         self._refresh_model_status()
         self._log(f"🎚 Тир модели: {tier}")
+        return self._snapshot()
+
+    def set_gpu_profile(self, profile: str) -> Dict[str, Any]:
+        if profile not in factory.GPU_PROFILES:
+            self._set(message=f"Неизвестный профиль: {profile}")
+            return self._snapshot()
+        config.PROVIDER.gpu_profile = profile
+        self._set(gpu_profile=profile)
+        self._log(f"🎛 Профиль видеокарты: {factory.GPU_PROFILES[profile]}")
         return self._snapshot()
 
     def set_key(self, key: str) -> Dict[str, Any]:
@@ -556,6 +567,7 @@ class Api:
                 target_lang=target_lang, before_request=self._control.wait_if_paused,
                 long_text_client=strong_client,
             )
+            tr.overlap_strong = getattr(cfg, "gpu_profile", "auto") == "fast_cpu"
 
             mirrorer.mirror_translate_dir(
                 inp, out, tr,

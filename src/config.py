@@ -158,6 +158,9 @@ class ProviderConfig:
 
     # авто-выбор модели по железу (STEP 1-2) + двумерный роутинг (STEP 5)
     tier: str = "light"          # выбранный тир железа: "light" | "standard"
+    # Профиль видеокарты: "auto" как раньше; "fast_cpu": основная модель на процессоре,
+    # видеокарта целиком под сильную, и длинные тексты идут ей одновременно с короткими.
+    gpu_profile: str = os.environ.get("GPU_PROFILE", "auto")
     light_model_id: str = ""     # id из model_registry (пусто → default_for_tier("light"))
     standard_model_id: str = ""  # id из model_registry (пусто → default_for_tier("standard"))
 

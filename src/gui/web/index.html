@@ -114,6 +114,13 @@
               <option value="standard">standard</option>
             </select>
           </label>
+          <label class="field inline" title="На Mac замерено: «fast_cpu» медленнее (52 → 40 строк в минуту). На Windows с NVIDIA не проверено.">
+            <span>Видеокарта</span>
+            <select id="gpuProfileSel">
+              <option value="auto">как обычно</option>
+              <option value="fast_cpu">основная на CPU, GPU под сильную</option>
+            </select>
+          </label>
           <div class="row">
             <button class="btn ghost" id="rescanBtn">Пересканировать железо</button>
           </div>
