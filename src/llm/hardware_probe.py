@@ -4,10 +4,11 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass, asdict
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from .. import config
 
@@ -45,22 +46,50 @@ class HardwareInfo:
 
 # ---------------- GPU ----------------
 
+def _nvidia_smi_candidates() -> List[str]:
+    """Где искать nvidia-smi. Старые драйверы Windows клали его в NVSMI, не в PATH."""
+    found = [shutil.which("nvidia-smi") or "nvidia-smi"]
+    if platform.system() == "Windows":
+        roots = (
+            os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32"),
+            os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "NVIDIA Corporation", "NVSMI"),
+        )
+        for root in roots:
+            path = os.path.join(root, "nvidia-smi.exe")
+            if os.path.isfile(path) and path not in found:
+                found.append(path)
+    return found
+
+
+def _run_quiet_kwargs() -> dict:
+    """
+    Оконное приложение на Windows: без CREATE_NO_WINDOW консольная программа открывает
+    своё окно на время запуска. stdin явно пустой: у оконного процесса нет консоли.
+    """
+    kwargs = {"stdin": subprocess.DEVNULL}
+    if platform.system() == "Windows":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    return kwargs
+
+
 def _detect_nvidia() -> Optional[Tuple[str, int]]:
     """Вернуть (name, vram_mb) через nvidia-smi или None."""
-    try:
-        out = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (FileNotFoundError, subprocess.SubprocessError, OSError):
-        return None
-    if out.returncode != 0 or not out.stdout.strip():
+    out = None
+    for exe in _nvidia_smi_candidates():
+        try:
+            out = subprocess.run(
+                [exe, "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                **_run_quiet_kwargs(),
+            )
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            out = None
+            continue
+        if out.returncode == 0 and out.stdout.strip():
+            break
+    if out is None or out.returncode != 0 or not out.stdout.strip():
         return None
     # берём первую (самую мощную обычно) карту
     line = out.stdout.strip().splitlines()[0]
