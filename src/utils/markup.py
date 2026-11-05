@@ -212,6 +212,19 @@ def foreign_latin_words(source: str, answer: str) -> List[str]:
     return found
 
 
+# Точка сразу после переноса: «кожи игрока\\n. Примечание». Модель ставит её туда вместо конца строки.
+# Перед строчной латиницей, цифрой и другой точкой это может быть текст: \\n.minecraft, \\n.5, \\n...
+_NEWLINE_DOT_RE = re.compile(r"(?:\\n|\n)\.")
+_STRAY_NEWLINE_DOT_RE = re.compile(r"(\\n|\n)\.(?![a-z0-9.])")
+
+
+def strip_newline_dots(source: str, answer: Optional[str]) -> Optional[str]:
+    """Убирает из ответа только такие точки и только если в источнике нет точки сразу после переноса."""
+    if not answer or _NEWLINE_DOT_RE.search(source):
+        return answer
+    return _STRAY_NEWLINE_DOT_RE.sub(r"\1", answer)
+
+
 # Выдуманный ответ на короткую строку: «PKMNCC» → «Покемонов не существует в Minecraft.»
 # Числа проверены на всём кэше: они ловят все известные случаи без ложных срабатываний.
 HALLUCINATION_MAX_SOURCE_WORDS = 6

@@ -22,6 +22,7 @@ from .utils.markup import (
     looks_hallucinated,
     mask,
     protected_code_changed,
+    strip_newline_dots,
     unmask,
 )
 from .utils.prompt_leak import PromptLeakDetector
@@ -391,7 +392,7 @@ class Translator:
         # если клиент не задан явно — выбираем по сложности строки (STEP 5)
         use_client = client or self._pick_client(text)
         src_tokens = _extract_tokens(text)
-        out = self._translate_masked(text, target_lang, use_client)
+        out = strip_newline_dots(text, self._translate_masked(text, target_lang, use_client))
         # Сбой, отмена, пустой ответ или брак: отдаём исходник
         if self._answer_rejected(out, src_tokens, target_lang, text):
             if self._is_model_fault(out):
@@ -500,6 +501,7 @@ class Translator:
                 # Модель потеряла токен разметки: эту строку спрашиваем отдельно
                 if out is None:
                     out = self.translate(src, target_lang)
+                out = strip_newline_dots(src, out)
                 if self._answer_rejected(out, src_tokens_ref[src], target_lang, src):
                     if out != src:
                         self._note_rejected(src, target_lang)
