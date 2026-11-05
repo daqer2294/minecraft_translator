@@ -12,7 +12,7 @@ from .processors.snbt_structured import translate_snbt_file_structured
 from .modpack_info import detect_modpack
 from .resource_pack import ResourcePackBuilder
 from .utils.helpers import ensure_dir_for_file
-from . import config
+from . import config, glossary
 
 
 # Локаль FTB Quests: lang/en_us.snbt или lang/en_us/chapters/x.snbt
@@ -543,6 +543,12 @@ def _mirror_translate_dir(
     for jp in jar_files:
         if _jar_has_lang_en_us(jp, include_nested):
             jar_ready.append(jp)
+
+    # Словарь терминов: только то, что официально переведено в самой сборке
+    if config.GLOSSARY_ENABLED and hasattr(translator, "set_glossary"):
+        glossary_data = glossary.build_glossary(jar_ready, target_lang, base_input, modpack.minecraft or "")
+        translator.set_glossary(glossary_data)
+        log(f"[GLOSSARY] Форм терминов: {glossary_data.size}")
 
     total = len(candidates) + len(jar_ready)
 

@@ -56,6 +56,9 @@ OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 LONG_TEXT_STRONG = os.environ.get("LONG_TEXT_STRONG", "1") != "0"
 LONG_TEXT_MIN_WORDS = int(os.environ.get("LONG_TEXT_MIN_WORDS", "15"))
 
+# Словарь терминов из языковых файлов сборки: в запрос идут только термины самой строки.
+GLOSSARY_ENABLED = os.environ.get("GLOSSARY_ENABLED", "1") != "0"
+
 # Локальный инференс (llama.cpp / GGUF)
 LOCAL_MODEL_PATH = os.environ.get("LOCAL_MODEL_PATH", "")       # путь к .gguf (in-process)
 LOCAL_SERVER_URL = os.environ.get("LOCAL_SERVER_URL", "")       # URL llama-server (server mode)

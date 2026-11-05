@@ -27,6 +27,7 @@ from .utils.markup import (
     text_word_count,
     unmask,
 )
+from .glossary import GLOSSARY_NOTE
 from .utils.prompt_leak import PromptLeakDetector
 from .llm.base import LLMClient, RateLimitError, LLMTimeoutError, LLMCancelledError, LLMTruncatedError
 from . import config
@@ -190,6 +191,7 @@ PROMPT_TEXTS = (
     BATCH_SYSTEM_PROMPT_TEMPLATE,
     MASK_PROMPT_NOTE,
     MASK_PROMPT_NOTE_RU,
+    GLOSSARY_NOTE,
 )
 PROMPT_LEAK = PromptLeakDetector(PROMPT_TEXTS)
 
@@ -260,6 +262,8 @@ class Translator:
         self._long_text_lock = threading.Lock()
         self._long_text_ready = False
         self._long_client: Optional[LLMClient] = None
+        # Словарь терминов сборки. Задаётся на прогон, см. set_glossary.
+        self.glossary = None
         # Только кэш, без запросов: для пересборки вывода после второго прохода.
         self.cache_only = False
         # Событие отмены: прокидывается в client.chat() и рвёт зависший HTTP-запрос
@@ -320,6 +324,18 @@ class Translator:
     def hybrid(self) -> bool:
         """True, если сложные строки уходят на отдельный (мощный/внешний) клиент."""
         return self._has_complex_client
+
+    def set_glossary(self, glossary) -> None:
+        self.glossary = glossary
+
+    def _glossary_note(self, texts: List[str]) -> str:
+        return self.glossary.prompt_note(texts) if self.glossary is not None else ""
+
+    def _glossary_rejects(self, source: str, answer: str) -> bool:
+        """Термин из источника потерян в ответе или модель вернула саму подсказку."""
+        if self.glossary is None:
+            return False
+        return self.glossary.echoed(answer) or bool(self.glossary.missing(source, answer))
 
     def _client_for_long_text(self, text: str) -> Optional[LLMClient]:
         """Сильная модель для длинного текста. None: текст короткий или такой модели нет."""
@@ -560,6 +576,7 @@ class Translator:
             or protected_code_changed(source, out)
             or bool(invented_tags(source, out))
             or answer_without_cyrillic(source, out, target_lang)
+            or self._glossary_rejects(source, out)
             or (self.strict and src_tokens != _extract_tokens(out))
         )
 
@@ -626,6 +643,7 @@ class Translator:
         # Пояснение о токенах только там, где они есть: иначе модель выдумывает их сама
         # («Leaves» → «[[0]] Leafs [[1]]») и чаще оставляет строку непереведённой.
         system = self._single_system_prompt(target_lang) + (MASK_PROMPT_NOTE if masked else "")
+        system += self._glossary_note([text])
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": text},
@@ -647,6 +665,7 @@ class Translator:
         system = self._batch_system_prompt(target_lang)
         if any(m.tokens for m in masked):
             system += MASK_PROMPT_NOTE
+        system += self._glossary_note(cores)
         messages = [
             {"role": "system", "content": system},
             {"role": "user", "content": user_content},

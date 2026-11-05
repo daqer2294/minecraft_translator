@@ -15,6 +15,7 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 from .processors.jar_lang import _LANG_MEMBER, _nested_jar_names, _open_nested
 from .utils.helpers import parse_lang_bytes
+from .utils.markup import MARKUP_RE
 
 _CYRILLIC_RE = re.compile("[Ѐ-ԯ]")
 _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
@@ -193,3 +194,123 @@ def load_fixed_terms(target_lang: str) -> List[FixedTerm]:
             FixedTerm(item["en"], item["ru"], tuple(item["forms"]), tuple(item["roots"]), bool(item["check"]))
             for item in json.load(f)["terms"]
         ]
+
+
+# Покемон, приём и способность проверяются в ответе. Названия предметов и блоков часто совпадают
+# с обычными словами («Water», «Stone»), поэтому они только подсказка модели.
+_CHECKED_CATEGORIES = {"pokemon", "move", "ability", "type"}
+_WORD_START_RE = re.compile(r"(?<![\w\-/])\w+")
+_SENTENCE_END_RE = re.compile(r"(?:^|[.!?:;\n]|\\n)\s*$")
+_RUSSIAN_WORD_RE = re.compile("[\u0400-\u052f]+")
+_LATIN_WORD_RE = re.compile("[^\\W\\d_]{2,}")
+
+GLOSSARY_NOTE = (
+    "\nGlossary. Use exactly these translations for these terms, changing only the grammatical ending:\n"
+)
+
+
+def _normalize(text: str) -> str:
+    return text.lower().replace("ё", "е")
+
+
+def _root(word: str) -> str:
+    """Основа слова: «Бульбазавр» и «Бульбазавра» находятся по одной и той же."""
+    if len(word) <= 3:
+        return word
+    return word[:-1] if len(word) <= 5 else word[:-2]
+
+
+def roots_of(russian: str) -> Tuple[str, ...]:
+    words = [w for w in _RUSSIAN_WORD_RE.findall(_normalize(russian)) if len(w) >= 3]
+    return tuple(_root(w) for w in words)
+
+
+@dataclass(frozen=True)
+class Entry:
+    en: str
+    ru: str
+    roots: Tuple[str, ...]
+    check: bool
+    # Имя покемона узнаётся и в начале предложения, а обычное слово с большой буквы там не термин.
+    at_sentence_start: bool
+
+
+class Glossary:
+    def __init__(self, terms: Iterable[Term] = (), fixed: Iterable[FixedTerm] = ()) -> None:
+        self._index: Dict[str, List[Tuple[str, Entry]]] = {}
+        self.size = 0
+        for term in terms:
+            self._add(term.en, Entry(
+                term.en, term.ru, roots_of(term.ru), term.category in _CHECKED_CATEGORIES, term.category == "pokemon",
+            ))
+        for item in fixed:
+            entry = Entry(item.en, item.ru, item.roots, item.check, False)
+            for form in item.forms:
+                self._add(form, entry)
+        for forms in self._index.values():
+            forms.sort(key=lambda pair: len(pair[0]), reverse=True)
+
+    def _add(self, form: str, entry: Entry) -> None:
+        match = _WORD_START_RE.search(form)
+        if match is None:
+            return
+        self._index.setdefault(match.group(0), []).append((form, entry))
+        self.size += 1
+
+    def find(self, text: str) -> List[Entry]:
+        """Термины, которые реально есть в строке. Разметка и код не считаются, длинная форма важнее короткой."""
+        plain = MARKUP_RE.sub(lambda m: " " * len(m.group(0)), text)
+        found: Dict[str, Entry] = {}
+        taken_until = 0
+        words = _LATIN_WORD_RE.findall(plain)
+        # В заголовке с большой буквы почти все слова: «Disable Waypoint» это не приём Disable.
+        title_case = len(words) > 1 and 4 * sum(w[0].isupper() for w in words) >= 3 * len(words)
+        for word in _WORD_START_RE.finditer(plain):
+            if word.start() < taken_until:
+                continue
+            for form, entry in self._index.get(word.group(0), ()):
+                end = word.start() + len(form)
+                if not plain.startswith(form, word.start()):
+                    continue
+                following = plain[end:end + 1]
+                if following and (following.isalnum() or following in "_-"):
+                    continue
+                single_capital = " " not in form and form[0].isupper()
+                if single_capital and not entry.at_sentence_start and (
+                    title_case or _SENTENCE_END_RE.search(plain[:word.start()])
+                ):
+                    continue
+                found.setdefault(entry.en, entry)
+                taken_until = end
+                break
+        return list(found.values())
+
+    def prompt_note(self, texts: Iterable[str]) -> str:
+        """Только термины этих строк. Пустая строка, если их нет: промпт останется прежним."""
+        found: Dict[str, Entry] = {}
+        for text in texts:
+            for entry in self.find(text):
+                found.setdefault(entry.en, entry)
+        if not found:
+            return ""
+        return GLOSSARY_NOTE + "\n".join(f"{entry.en} = {entry.ru}" for entry in found.values())
+
+    def missing(self, source: str, answer: str) -> List[str]:
+        """Термины источника, чьей русской формы нет в ответе. Ответ, равный источнику, не проверяется."""
+        if answer == source:
+            return []
+        normalized = _normalize(answer)
+        words = _RUSSIAN_WORD_RE.findall(normalized)
+        return [
+            entry.en for entry in self.find(source)
+            if entry.check and entry.roots and not all(any(w.startswith(r) for w in words) for r in entry.roots)
+        ]
+
+    def echoed(self, answer: str) -> bool:
+        """Модель вернула строку подсказки вместо перевода."""
+        return "Glossary." in answer or bool(re.search(r"^.+ = [\u0400-\u052f].*$", answer, re.M) and self.find(answer))
+
+
+def build_glossary(archives: Iterable[str], target_lang: str, base_input: str = "", game_version: str = "") -> Glossary:
+    collector = collect_official(archives, target_lang, base_input, game_version)
+    return Glossary(collector.terms.values(), load_fixed_terms(target_lang))
