@@ -98,6 +98,15 @@ def _want_kubejs_js(path_norm: str) -> bool:
     return "/kubejs/" in path_norm and path_norm.endswith(".js")
 
 
+# Папки, откуда игра и OpenLoader берут паки ресурсов. config/resourcepacks игра не читает.
+_RESOURCE_ZIP_DIRS = ("resourcepacks", "config/openloader/resources", "config/openloader/packs")
+
+
+def _is_resource_zip(rel: str) -> bool:
+    folder, _, name = rel.replace("\\", "/").rpartition("/")
+    return name.lower().endswith(".zip") and folder in _RESOURCE_ZIP_DIRS
+
+
 def _is_candidate(path_norm: str) -> bool:
     return (
         _is_lang_en_us(path_norm)
@@ -513,6 +522,9 @@ def _mirror_translate_dir(
             # поэтому "/mods/" in r_norm было False → все моды CurseForge молча
             # игнорировались (jar лежат прямо в mods/, не в подпапках).
             if fname.endswith(".jar") and "/mods/" in pnorm:
+                jar_files.append(full)
+                continue
+            if _is_resource_zip(_rel(base_input, full)):
                 jar_files.append(full)
                 continue
             if _is_candidate(pnorm):

@@ -11,6 +11,8 @@ from ..utils.helpers import parse_lang_bytes
 from .lang_json import has_official_translation, keys_to_translate, merge_lang, source_text
 
 _LANG_MEMBER = re.compile(r"(assets/[^/]+/lang/)([A-Za-z_]+)\.json$")
+# Ванильный ru_ru игра берёт из своих ресурсов: перевод из чужого пака перекрыл бы его.
+_VANILLA_LANG = "assets/minecraft/lang/"
 _NESTED_JARS_DIR = "META-INF/jars/"
 _MAX_NESTING = 4
 
@@ -65,6 +67,7 @@ def jar_has_lang(zf: zipfile.ZipFile, include_nested: bool, depth: int = 0) -> b
 
 def _process_archive(
     zf: zipfile.ZipFile, jar_label: str, pack, translator, log, write, target_lang, cancel_event,
+    skip_vanilla: bool = False,
 ) -> int:
     processed = 0
     # Имя локали без учёта регистра: в старых модах встречается ru_RU.json
@@ -75,7 +78,7 @@ def _process_archive(
             lang_files[(m.group(1), m.group(2).lower())] = name
 
     for (folder, locale), member in sorted(lang_files.items()):
-        if locale != "en_us":
+        if locale != "en_us" or (skip_vanilla and folder == _VANILLA_LANG):
             continue
 
         en = parse_lang_bytes(zf.read(member))
@@ -153,6 +156,7 @@ def process_jar_lang(
     Ищет внутри JAR файлы assets/**/lang/en_us.json и добавляет в ресурспак перевод
     только недостающих ключей. Официальный перевод из JAR переносится без изменений.
     include_nested — ещё и вложенные jar мода Fabric (META-INF/jars).
+    Так же читается zip с ресурсами, кроме ключей самой игры.
     Возвращает число файлов, где понадобился перевод. После «Стоп» недоведённый файл
     в пак не попадает: готовые строки остаются в кэше.
     """
@@ -160,6 +164,10 @@ def process_jar_lang(
     jar_label = os.path.basename(jar_path)
     try:
         with zipfile.ZipFile(os.path.abspath(jar_path), "r") as zf:
+            if jar_path.lower().endswith(".zip"):
+                return _process_archive(
+                    zf, jar_label, pack, translator, log, write, target_lang, cancel_event, skip_vanilla=True,
+                )
             return _process_with_nested(
                 zf, jar_label, pack, translator, log, write, target_lang, cancel_event, include_nested,
             )
