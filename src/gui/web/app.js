@@ -223,7 +223,9 @@ function render(state) {
   pill.className = "phase " + state.phase;
 
   // железо
-  $("#hwSummary").textContent = state.hardware ? state.hardware.summary : "проба ещё не выполнялась";
+  $("#hwSummary").textContent = state.hardware
+    ? state.hardware.summary + (state.hardware.device ? " · Перевод: " + state.hardware.device : "")
+    : "проба ещё не выполнялась";
 
   // рекомендация тира (BUG 1): показываем, но НЕ переключаем автоматически
   const rec = state.hardware && state.hardware.recommended_tier;

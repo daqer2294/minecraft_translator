@@ -184,6 +184,40 @@ def recommend_tier(gpu_vram_mb: int, cpu_cores: int, ram_mb: int) -> str:
     return "light"
 
 
+# ---------------- чем считает локальная модель ----------------
+
+_OFFLOAD: List[Optional[bool]] = []
+
+
+def gpu_offload_supported() -> Optional[bool]:
+    """Умеет ли установленный llama_cpp считать на GPU (CUDA, Metal). None: llama_cpp нет."""
+    if not _OFFLOAD:
+        try:
+            import llama_cpp
+            _OFFLOAD.append(bool(llama_cpp.llama_supports_gpu_offload()))
+        except Exception:
+            _OFFLOAD.append(None)
+    return _OFFLOAD[0]
+
+
+def inference_device(info: Optional["HardwareInfo"], offload: Optional[bool] = None) -> str:
+    """
+    Что показать в интерфейсе: «GPU: NVIDIA GeForce RTX 4060 Ti» или «CPU». Видеокарта
+    засчитывается, только если сборка llama_cpp умеет на неё переносить слои: CPU-колесо
+    при NVIDIA всё равно считает на процессоре.
+    """
+    if offload is None:
+        offload = gpu_offload_supported()
+    if offload is None:
+        return "локальная модель недоступна"
+    name = info.gpu_name if info is not None and info.gpu_available else ""
+    if name and offload:
+        return f"GPU: {name}"
+    if name and "nvidia" in name.lower():
+        return f"CPU (есть {name}, но сборка без CUDA)"
+    return "CPU"
+
+
 # ---------------- публичный API ----------------
 
 def probe_hardware() -> HardwareInfo:

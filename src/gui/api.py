@@ -157,6 +157,7 @@ class Api:
             "cpu_cores": hw.cpu_cores,
             "recommended_tier": hw.recommended_tier,
             "summary": hw.summary(),
+            "device": hp.inference_device(hw),
         }
 
     def _log(self, msg: str):
