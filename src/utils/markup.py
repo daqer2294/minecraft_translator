@@ -82,6 +82,34 @@ def has_mixed_script_word(text: str) -> bool:
     )
 
 
+# Вступление модели перед переводом и слово в источнике, при котором такое начало законно.
+# Голые «Хорошо», «Вот», «Пожалуйста» сюда не входят: это обычные переводы.
+_INTRO_PHRASES = (
+    (re.compile(r"хорошо\s*[,!:]\s*вот\b"), None),
+    (re.compile(r"вот\s+(?:ваш\s+|сам\s+)?перевод\b"), None),
+    (re.compile(r"конечно\s*[,!:]"), r"course|sure|certainly|naturally|definitely"),
+    (re.compile(r"перевод\s*:"), r"translat"),
+    (re.compile(r"переведено\s*:"), r"translat"),
+    (re.compile(r"here(?:\s+is|'s|’s)\b"), r"\bhere(?:\s+is|'s|’s)"),
+    (re.compile(r"sure\s*[,!:]"), r"\bsure\b"),
+    (re.compile(r"translation\s*:"), r"translation"),
+    (re.compile(r"translated\s*:"), r"translated"),
+)
+_RAW_MASK_RE = re.compile(r"\[\[.*?\]\]", re.DOTALL)
+
+
+def has_intro_or_raw_mask(source: str, answer: str) -> bool:
+    """Ответ начинается со вступления или в нём осталось [[...]], которого нет в источнике."""
+    if _RAW_MASK_RE.search(answer) and not _RAW_MASK_RE.search(source):
+        return True
+    start = re.sub(r"^\W+", "", answer).lower()
+    lowered = source.lower()
+    return any(
+        phrase.match(start) and not (allowed and re.search(allowed, lowered))
+        for phrase, allowed in _INTRO_PHRASES
+    )
+
+
 # Выдуманный ответ на короткую строку: «PKMNCC» → «Покемонов не существует в Minecraft.»
 # Числа проверены на всём кэше: они ловят все известные случаи без ложных срабатываний.
 HALLUCINATION_MAX_SOURCE_WORDS = 6
