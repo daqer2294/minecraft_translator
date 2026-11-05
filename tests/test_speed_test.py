@@ -59,6 +59,32 @@ class Report(unittest.TestCase):
         self.assertIn("[fast_cpu] ОШИБКА: RuntimeError: нет памяти", text)
         self.assertIn("Строк: 4", text)
 
+    def test_bundled_set_has_70_short_and_30_long(self):
+        from src.utils.markup import text_word_count
+        texts = speed_test.bundled_strings()
+        self.assertEqual(len(texts), 100)
+        self.assertEqual(sum(text_word_count(t) >= 15 for t in texts), 30)
+        with open(speed_test.BUNDLED_PATH, encoding="utf-8") as f:
+            packs = {item["pack"] for item in json.load(f)["strings"]}
+        self.assertEqual(packs, {"Cobblemon SMP", "ATM10"})
+
+    def test_no_path_uses_the_bundled_set(self):
+        home = tempfile.mkdtemp()
+        seen = []
+        with mock.patch.object(config, "APP_DATA_DIR", home), \
+                mock.patch.object(speed_test, "run_profile", side_effect=lambda p, s, b, log: seen.append((b, len(s))) or {"x": 1}):
+            path = speed_test.cli(["exe", "--speed-test", "--limit", "10"])
+        self.assertEqual(seen, [(None, 10), (None, 10)])
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("встроенный набор", text)
+
+    def test_bundled_file_ships_with_the_app(self):
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for spec in ("MinecraftTranslator-mac.spec", "MinecraftTranslator-win.spec"):
+            with open(os.path.join(root, spec), encoding="utf-8") as f:
+                self.assertIn('("src/data", "src/data")', f.read(), spec)
+
     def test_missing_folder_is_reported(self):
         with self.assertRaises(SystemExit):
             speed_test.cli(["exe", "--speed-test", "/нет/такой/папки"])

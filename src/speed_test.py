@@ -2,7 +2,9 @@
 """
 Тест скорости на 100 строках выбранной сборки: два профиля видеокарты подряд.
 Запуск из собранного приложения, Python не нужен:
+    MinecraftTranslator.exe --speed-test
     MinecraftTranslator.exe --speed-test "C:\\Users\\<имя>\\curseforge\\minecraft\\Instances\\<сборка>"
+Без пути берутся 100 строк, зашитых в приложение (Cobblemon SMP и ATM10), с путём из модов сборки.
 Отчёт пишется в <папка данных>\\speed_test.txt. Настоящий кэш не используется и не меняется.
 """
 from __future__ import annotations
@@ -36,6 +38,13 @@ from .utils.helpers import is_untranslatable, parse_lang_bytes
 from .utils.markup import text_word_count
 
 PROFILES = ("auto", "fast_cpu")
+BUNDLED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "speed_test_strings.json")
+
+
+def bundled_strings() -> List[str]:
+    """100 строк из Cobblemon SMP и ATM10, которые идут вместе с приложением."""
+    with open(BUNDLED_PATH, encoding="utf-8") as f:
+        return [item["text"] for item in json.load(f)["strings"]]
 
 
 def collect_strings(base_input: str, n_short: int = 70, n_long: int = 30, seed: int = 100) -> List[str]:
@@ -113,8 +122,8 @@ def run_profile(profile: str, strings: List[str], base_input: str, log=lambda s:
     tr = Translator(primary, TranslationCache(os.path.join(tempfile.mkdtemp(prefix="mct_speed_"), "c.json")),
                     strict=True, complex_client=complex_client, log=log, target_lang="ru_ru",
                     long_text_client=strong_getter)
-    tr.set_glossary(build_glossary(sorted(glob.glob(os.path.join(base_input, "mods", "*.jar"))), "ru_ru", base_input,
-                                   ""))
+    jars = sorted(glob.glob(os.path.join(base_input, "mods", "*.jar"))) if base_input else []
+    tr.set_glossary(build_glossary(jars, "ru_ru", base_input or "", ""))
     tr.overlap_strong = profile == "fast_cpu"
     sampler = VramSampler()
     sampler.start()
@@ -156,14 +165,14 @@ def run_profile(profile: str, strings: List[str], base_input: str, log=lambda s:
     return result
 
 
-def report(base_input: str, limit: Optional[int] = None, log=lambda s: None) -> str:
-    strings = collect_strings(base_input)
+def report(base_input: Optional[str], limit: Optional[int] = None, log=lambda s: None) -> str:
+    strings = collect_strings(base_input) if base_input else bundled_strings()
     if limit:
         strings = strings[:limit // 2] + strings[-(limit - limit // 2):]
     hw = hp.probe_hardware()
     lines = [
         f"Тест скорости Minecraft Translator, {time.strftime('%Y-%m-%d %H:%M')}",
-        f"Сборка: {base_input}",
+        f"Строки: {base_input or 'встроенный набор (Cobblemon SMP и ATM10)'}",
         f"Система: {platform.platform()} | процессор: {platform.processor()}",
         f"Железо: {hw.summary()}",
         f"Перевод: {hp.inference_device(hw)} | llama_cpp умеет GPU: {hp.gpu_offload_supported()}",
@@ -188,10 +197,10 @@ def report(base_input: str, limit: Optional[int] = None, log=lambda s: None) -> 
 
 
 def cli(argv: List[str]) -> str:
-    """--speed-test <папка сборки> [--limit N]. Возвращает путь к отчёту."""
+    """--speed-test [папка сборки] [--limit N]. Без папки берётся встроенный набор строк."""
     i = argv.index("--speed-test")
-    base = argv[i + 1] if len(argv) > i + 1 else ""
+    base = argv[i + 1] if len(argv) > i + 1 and not argv[i + 1].startswith("--") else None
     limit = int(argv[argv.index("--limit") + 1]) if "--limit" in argv else None
-    if not os.path.isdir(base):
+    if base is not None and not os.path.isdir(base):
         raise SystemExit(f"Папка сборки не найдена: {base!r}")
     return report(base, limit)
