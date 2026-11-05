@@ -294,7 +294,7 @@ class Api:
         if st.available:
             self._log(f"🦙 Ollama найдена ({st.base_url}), моделей: {len(models)}")
         else:
-            self._log("🦙 Ollama не найдена (localhost:11434)")
+            self._log(f"🦙 Ollama не найдена ({st.base_url})")
         return self._snapshot()
 
     def set_ollama_model(self, model_name: str) -> Dict[str, Any]:

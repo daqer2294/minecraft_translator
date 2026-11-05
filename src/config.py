@@ -49,7 +49,7 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 # Закрывает R-4 / Q-1: base_url теперь конфигурируем (OpenAI, DeepSeek, Qwen,
 # llama.cpp server, LM Studio, Ollama /v1, vLLM ...).
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com")
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
 
 # Длинные тексты сразу идут в сильную модель, если она есть в Ollama или скачан Standard.
 # На 100 описаниях: сильная 100 чистых из 100, основная 76. Без сильной всё идёт как обычно.
@@ -145,7 +145,7 @@ class ProviderConfig:
     external_model: str = "gpt-4o-mini"
 
     # локальная Ollama (OpenAI-совместимый эндпоинт /v1, ключ не нужен)
-    ollama_base_url: str = "http://localhost:11434"
+    ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = ""           # имя выбранной модели, напр. "qwen2.5:3b"
 
     # Сильная модель второго прохода: переводит только строки, где основная дала брак.
