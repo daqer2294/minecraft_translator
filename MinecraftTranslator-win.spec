@@ -13,7 +13,7 @@ from PyInstaller.utils.hooks import collect_all
 
 block_cipher = None
 
-datas = [("src/gui/web", "src/gui/web")]
+datas = [("src/gui/web", "src/gui/web"), ("src/data", "src/data")]
 binaries = []
 hiddenimports = [
     "webview",

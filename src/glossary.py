@@ -17,6 +17,7 @@ from .processors.jar_lang import _LANG_MEMBER, _nested_jar_names, _open_nested
 from .utils.helpers import parse_lang_bytes
 
 _CYRILLIC_RE = re.compile("[Ѐ-ԯ]")
+_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 
 # Порядок важен: одно английское имя остаётся за первой категорией.
 _CATEGORIES: Tuple[Tuple[str, "re.Pattern[str]"], ...] = (
@@ -170,3 +171,25 @@ def collect_official(
         except (OSError, zipfile.BadZipFile):
             continue
     return collector
+
+
+@dataclass(frozen=True)
+class FixedTerm:
+    """Общий термин из файла: формы в источнике и корни русского варианта."""
+    en: str
+    ru: str
+    forms: Tuple[str, ...]
+    roots: Tuple[str, ...]
+    check: bool
+
+
+def load_fixed_terms(target_lang: str) -> List[FixedTerm]:
+    """Файл src/data/glossary_<язык>.json. Для языка без файла общих терминов нет."""
+    path = os.path.join(_DATA_DIR, f"glossary_{target_lang.lower()}.json")
+    if not os.path.isfile(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        return [
+            FixedTerm(item["en"], item["ru"], tuple(item["forms"]), tuple(item["roots"]), bool(item["check"]))
+            for item in json.load(f)["terms"]
+        ]
