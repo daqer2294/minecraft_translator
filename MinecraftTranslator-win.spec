@@ -10,6 +10,32 @@
 
 import os
 from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.win32.versioninfo import (
+    FixedFileInfo, StringFileInfo, StringStruct, StringTable, VarFileInfo, VarStruct, VSVersionInfo,
+)
+
+# Версия в свойствах exe: без неё SmartScreen и антивирусы видят «пустой» файл.
+_version_ns = {}
+with open(os.path.join("src", "version.py"), encoding="utf-8") as _f:
+    exec(_f.read(), _version_ns)
+VERSION = _version_ns["__version__"]
+_nums = tuple(int(x) for x in VERSION.split(".")) + (0,) * (4 - len(VERSION.split(".")))
+version_info = VSVersionInfo(
+    ffi=FixedFileInfo(filevers=_nums, prodvers=_nums, mask=0x3F, flags=0x0, OS=0x40004, fileType=0x1,
+                      subtype=0x0, date=(0, 0)),
+    kids=[
+        StringFileInfo([StringTable("040904B0", [
+            StringStruct("CompanyName", "daqer2294"),
+            StringStruct("FileDescription", "Minecraft Translator"),
+            StringStruct("FileVersion", VERSION),
+            StringStruct("InternalName", "MinecraftTranslator"),
+            StringStruct("OriginalFilename", "MinecraftTranslator.exe"),
+            StringStruct("ProductName", "Minecraft Translator"),
+            StringStruct("ProductVersion", VERSION),
+        ])]),
+        VarFileInfo([VarStruct("Translation", [1033, 1200])]),
+    ],
+)
 
 block_cipher = None
 
@@ -63,7 +89,8 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # UPX выключен: сжатый им exe чаще принимают за вирус.
+    upx=False,
     upx_exclude=[],
     runtime_tmpdir=None,
     console=False,          # оконное приложение
@@ -72,4 +99,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    version=version_info,
 )
