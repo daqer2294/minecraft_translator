@@ -125,6 +125,24 @@ class Missing(unittest.TestCase):
         self.assertEqual(self.g.missing("It raises Sp. Atk.", "Повышает спец. атаку."), [])
         self.assertEqual(self.g.missing("It raises Sp. Atk.", "Повышает атаку."), ["Sp. Atk"])
 
+    def test_target_needs_the_whole_word(self):
+        source = "It hits the target."
+        for answer in ("Бьёт цель.", "Бьёт цели.", "Бьёт целью.", "Бьёт целей.", "Цель бита."):
+            self.assertEqual(self.g.missing(source, answer), [], answer)
+        for answer in ("Съедает его целиком.", "Целевой удар.", "Целый удар.", "Для целевого объекта."):
+            self.assertEqual(self.g.missing(source, answer), ["target"], answer)
+
+    def test_attack_needs_the_whole_word(self):
+        source = "It raises the Attack stat."
+        for answer in ("Повышает атаку.", "Повышает показатель атаки.", "Атака растёт.", "С атакой."):
+            self.assertEqual(self.g.missing(source, answer), [], answer)
+        for answer in ("Он атакует.", "Атакующий удар.", "Контратака растёт."):
+            self.assertEqual(self.g.missing(source, answer), ["Attack"], answer)
+
+    def test_other_terms_still_use_roots(self):
+        self.assertEqual(self.g.missing("It raises Sp. Atk.", "Повышает спец. атаке."), [])
+        self.assertEqual(self.g.missing("The user hits.", "Пользовательский удар."), [])
+
     def test_every_word_of_a_name_is_needed(self):
         self.assertEqual(self.g.missing("It learned Headbutt.", "Выучил удар."), ["Headbutt"])
         self.assertEqual(self.g.missing("It learned Headbutt.", "Выучил Удар Головой."), [])

@@ -38,6 +38,14 @@ class Fixed(unittest.TestCase):
             for root in term.roots:
                 self.assertIn(root, text, en)
 
+    def test_target_and_attack_list_whole_words(self):
+        self.assertEqual(self.terms["target"].roots, ())
+        self.assertIn("целью", self.terms["target"].words)
+        self.assertNotIn("целиком", self.terms["target"].words)
+        self.assertEqual(self.terms["Attack"].roots, ())
+        self.assertIn("атаку", self.terms["Attack"].words)
+        self.assertNotIn("атакует", self.terms["Attack"].words)
+
     def test_verb_moves_is_not_a_form(self):
         self.assertNotIn("moves", self.terms["move"].forms)
         self.assertNotIn("move", self.terms["move"].forms)

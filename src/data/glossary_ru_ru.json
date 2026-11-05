@@ -2,10 +2,10 @@
   "_source": "Формы из официальных описаний приёмов Cobblemon ru_ru, сверены вручную",
   "terms": [
     {"en": "user", "ru": "пользователь", "forms": ["user", "user's", "user’s", "users"], "roots": ["пользовател"], "check": true},
-    {"en": "target", "ru": "цель", "forms": ["target", "targets", "target's", "target’s"], "roots": ["цел"], "check": true},
+    {"en": "target", "ru": "цель", "forms": ["target", "targets", "target's", "target’s"], "roots": [], "words": ["цель", "цели", "целью", "целей", "целям", "целями", "целях"], "check": true},
     {"en": "flinch", "ru": "вздрогнуть", "forms": ["flinch", "flinches", "flinched", "flinching"], "roots": ["вздрог"], "check": true},
     {"en": "stat", "ru": "показатель", "forms": ["stat", "stats"], "roots": ["показател"], "check": false},
-    {"en": "Attack", "ru": "Атака", "forms": ["Attack stat", "Attack stats", "Attack"], "roots": ["атак"], "check": true},
+    {"en": "Attack", "ru": "Атака", "forms": ["Attack stat", "Attack stats", "Attack"], "roots": [], "words": ["атака", "атаки", "атаке", "атаку", "атакой", "атакою", "атак", "атакам", "атаками", "атаках"], "check": true},
     {"en": "Defense", "ru": "Защита", "forms": ["Defense stat", "Defense stats", "Defense"], "roots": ["защит"], "check": true},
     {"en": "Sp. Atk", "ru": "Спец. атака", "forms": ["Sp. Atk stat", "Sp. Atk stats", "Sp. Atk", "Special Attack"], "roots": ["спец", "атак"], "check": true},
     {"en": "Sp. Def", "ru": "Спец. защита", "forms": ["Sp. Def stat", "Sp. Def stats", "Sp. Def", "Special Defense"], "roots": ["спец", "защит"], "check": true},

@@ -182,6 +182,8 @@ class FixedTerm:
     forms: Tuple[str, ...]
     roots: Tuple[str, ...]
     check: bool
+    # Только такие слова целиком: «цели» подходит, а «целиком» и «атакует» нет.
+    words: Tuple[str, ...] = ()
 
 
 def load_fixed_terms(target_lang: str) -> List[FixedTerm]:
@@ -191,7 +193,10 @@ def load_fixed_terms(target_lang: str) -> List[FixedTerm]:
         return []
     with open(path, encoding="utf-8") as f:
         return [
-            FixedTerm(item["en"], item["ru"], tuple(item["forms"]), tuple(item["roots"]), bool(item["check"]))
+            FixedTerm(
+                item["en"], item["ru"], tuple(item["forms"]), tuple(item["roots"]), bool(item["check"]),
+                tuple(item.get("words", ())),
+            )
             for item in json.load(f)["terms"]
         ]
 
@@ -233,6 +238,7 @@ class Entry:
     check: bool
     # Имя покемона узнаётся и в начале предложения, а обычное слово с большой буквы там не термин.
     at_sentence_start: bool
+    words: Tuple[str, ...] = ()
 
 
 class Glossary:
@@ -244,7 +250,7 @@ class Glossary:
                 term.en, term.ru, roots_of(term.ru), term.category in _CHECKED_CATEGORIES, term.category == "pokemon",
             ))
         for item in fixed:
-            entry = Entry(item.en, item.ru, item.roots, item.check, False)
+            entry = Entry(item.en, item.ru, item.roots, item.check, False, item.words)
             for form in item.forms:
                 self._add(form, entry)
         for forms in self._index.values():
@@ -301,10 +307,13 @@ class Glossary:
             return []
         normalized = _normalize(answer)
         words = _RUSSIAN_WORD_RE.findall(normalized)
-        return [
-            entry.en for entry in self.find(source)
-            if entry.check and entry.roots and not all(any(w.startswith(r) for w in words) for r in entry.roots)
-        ]
+        return [entry.en for entry in self.find(source) if entry.check and not self._present(entry, words)]
+
+    @staticmethod
+    def _present(entry: Entry, words: List[str]) -> bool:
+        if entry.words and not any(word in entry.words for word in words):
+            return False
+        return all(any(word.startswith(root) for word in words) for root in entry.roots)
 
     def echoed(self, answer: str) -> bool:
         """Модель вернула строку подсказки вместо перевода."""
