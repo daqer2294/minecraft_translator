@@ -32,6 +32,13 @@ def _resource_dir() -> str:
 
 
 def main():
+    from src import platform_guard
+
+    platform_guard.ensure_std_streams()
+    if platform_guard.webview2_missing():
+        platform_guard.ask_to_install_webview2()
+        return
+
     import webview  # импорт здесь, чтобы модуль импортировался и без pywebview
 
     index = os.path.join(_resource_dir(), "index.html")
