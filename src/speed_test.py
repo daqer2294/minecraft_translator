@@ -165,6 +165,33 @@ def run_profile(profile: str, strings: List[str], base_input: str, log=lambda s:
     return result
 
 
+def strong_threads(strings: List[str], threads=(1, 4)) -> List[str]:
+    """
+    Сильная модель на длинных строках в 1 и 4 потока. Даёт что-то, только если Ollama запущена
+    с OLLAMA_NUM_PARALLEL больше 1. На Mac при 4 было 147 → 111 с, но ответы совпали 33 из 40.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    strong, reason = factory.build_strong_client(config.PROVIDER)
+    if strong is None:
+        return [f"Сильная модель в потоках: пропущено, {reason}"]
+    texts = [s for s in strings if text_word_count(s) >= 15]
+    lines, outputs = [], {}
+    for n in threads:
+        tr = Translator(strong, TranslationCache(os.path.join(tempfile.mkdtemp(prefix="mct_threads_"), "c.json")),
+                        strict=True, log=lambda s: None, target_lang="ru_ru")
+        started = time.perf_counter()
+        with contextlib.redirect_stdout(io.StringIO()), ThreadPoolExecutor(n) as pool:
+            outputs[n] = list(pool.map(lambda t: tr.translate(t, client=strong), texts))
+        sec = time.perf_counter() - started
+        same = sum(a == b for a, b in zip(outputs[threads[0]], outputs[n]))
+        lines.append(
+            f"Сильная модель, {n} поток(а): {len(texts)} строк за {sec:.1f} с, {len(texts) / sec * 60:.1f} строк/мин, "
+            f"совпало с 1 потоком {same}/{len(texts)}"
+        )
+    return lines
+
+
 def report(base_input: Optional[str], limit: Optional[int] = None, log=lambda s: None) -> str:
     strings = collect_strings(base_input) if base_input else bundled_strings()
     if limit:
@@ -189,6 +216,10 @@ def report(base_input: Optional[str], limit: Optional[int] = None, log=lambda s:
         except Exception as e:
             lines.append(f"[{profile}] ОШИБКА: {type(e).__name__}: {e}")
         lines.append("")
+    try:
+        lines += strong_threads(strings)
+    except Exception as e:
+        lines.append(f"Сильная модель в потоках: ОШИБКА: {type(e).__name__}: {e}")
     path = os.path.join(config.APP_DATA_DIR, "speed_test.txt")
     os.makedirs(config.APP_DATA_DIR, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:

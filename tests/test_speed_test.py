@@ -49,7 +49,8 @@ class Report(unittest.TestCase):
                 raise RuntimeError("нет памяти")
             return {"profile": profile, "strings": len(strings), "strings_per_minute": 42.0}
 
-        with mock.patch.object(config, "APP_DATA_DIR", home), mock.patch.object(speed_test, "run_profile", side_effect=fake):
+        with mock.patch.object(config, "APP_DATA_DIR", home), mock.patch.object(speed_test, "run_profile", side_effect=fake), \
+                mock.patch.object(speed_test, "strong_threads", return_value=[]):
             path = speed_test.report(pack(), limit=4)
         with open(path, encoding="utf-8") as f:
             text = f.read()
@@ -72,12 +73,14 @@ class Report(unittest.TestCase):
         home = tempfile.mkdtemp()
         seen = []
         with mock.patch.object(config, "APP_DATA_DIR", home), \
-                mock.patch.object(speed_test, "run_profile", side_effect=lambda p, s, b, log: seen.append((b, len(s))) or {"x": 1}):
+                mock.patch.object(speed_test, "run_profile", side_effect=lambda p, s, b, log: seen.append((b, len(s))) or {"x": 1}), \
+                mock.patch.object(speed_test, "strong_threads", return_value=["потоки: пропущено"]):
             path = speed_test.cli(["exe", "--speed-test", "--limit", "10"])
         self.assertEqual(seen, [(None, 10), (None, 10)])
         with open(path, encoding="utf-8") as f:
             text = f.read()
         self.assertIn("встроенный набор", text)
+        self.assertIn("потоки: пропущено", text)
 
     def test_bundled_file_ships_with_the_app(self):
         root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
