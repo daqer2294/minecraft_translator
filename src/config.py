@@ -7,7 +7,10 @@ from dataclasses import dataclass
 
 # ========== Speed knobs / performance ==========
 MAX_WORKERS_FILES = 6          # параллельная обработка файлов
-BATCH_SIZE = 100               # размер пачки строк на 1 запрос
+# Размер пачки строк на 1 запрос; 1 означает по одной строке. Замер на 200 строках Cobblemon,
+# Qwen 2.5 3B на Mac M2: по одной 99 с, пачки по 25 112 с, по 100 190 с (пачки разваливались,
+# и строки переспрашивались по одной). В пачках и перевод хуже: «Блок-энтрейтент Тип».
+BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "1"))
 RETRY_MAX_ATTEMPTS = 6
 RETRY_BASE_DELAY = 2.0
 RETRY_MAX_DELAY = 30.0

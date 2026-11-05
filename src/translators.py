@@ -487,7 +487,11 @@ class Translator:
 
             # сложные строки — одиночками; translate() сам сроутит их на
             # complex/standard-клиент (или на light с пометкой, если его нет).
-            if _is_complex_text(t, self.complex_len_threshold) or self._client_for_long_text(t) is not None:
+            if (
+                self.batch_size <= 1
+                or _is_complex_text(t, self.complex_len_threshold)
+                or self._client_for_long_text(t) is not None
+            ):
                 results[i] = self.translate(t, target_lang)
                 continue
 

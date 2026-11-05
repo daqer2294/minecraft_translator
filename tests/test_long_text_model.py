@@ -193,5 +193,21 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(pack, {"short": "Основной перевод", "long": "Сильный перевод"})
 
 
+# Эти тесты проверяют поведение пачек, а по умолчанию строки идут по одной (config.BATCH_SIZE).
+_BATCH_PATCH = None
+
+
+def setUpModule():
+    global _BATCH_PATCH
+    from unittest import mock as _mock
+    from src import config as _config
+    _BATCH_PATCH = _mock.patch.object(_config, "BATCH_SIZE", 50)
+    _BATCH_PATCH.start()
+
+
+def tearDownModule():
+    _BATCH_PATCH.stop()
+
+
 if __name__ == "__main__":
     unittest.main()
