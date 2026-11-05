@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import os
-from typing import Optional, Tuple, TYPE_CHECKING
+import threading
+from typing import Callable, List, Optional, Tuple, TYPE_CHECKING
 
 from .base import LLMClient
 from .openai_compatible import OpenAICompatibleClient
@@ -137,6 +138,20 @@ def build_strong_client(cfg: "ProviderConfig") -> Tuple[Optional[LLMClient], str
         f"Сильной модели нет: она улучшит результат. Установите «ollama pull {want}» "
         "или скачайте модель Standard в приложении."
     )
+
+
+def shared_strong_client(cfg: "ProviderConfig") -> Callable[[], Tuple[Optional[LLMClient], str]]:
+    """Один клиент на прогон: длинные тексты и второй проход не должны загружать модель дважды."""
+    lock = threading.Lock()
+    built: List[Tuple[Optional[LLMClient], str]] = []
+
+    def get() -> Tuple[Optional[LLMClient], str]:
+        with lock:
+            if not built:
+                built.append(build_strong_client(cfg))
+            return built[0]
+
+    return get
 
 
 def build_clients(cfg: "ProviderConfig") -> Tuple[LLMClient, Optional[LLMClient]]:

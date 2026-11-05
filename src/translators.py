@@ -24,6 +24,7 @@ from .utils.markup import (
     mask,
     protected_code_changed,
     strip_newline_dots,
+    text_word_count,
     unmask,
 )
 from .utils.prompt_leak import PromptLeakDetector
@@ -234,6 +235,7 @@ class Translator:
         cancel_event: Optional[threading.Event] = None,
         target_lang: Optional[str] = None,
         before_request: Optional[callable] = None,
+        long_text_client: Optional[callable] = None,
     ):
         # P0-3: язык фиксируется ОДИН раз на весь прогон. Воркеры больше не читают
         # изменяемый глобал config.TARGET_LANG — смена языка в UI во время перевода
@@ -252,6 +254,12 @@ class Translator:
         # Строки, где модель ответила браком: их переводит второй проход.
         self._rejected: Dict[Tuple[str, str], None] = {}
         self._rejected_lock = threading.Lock()
+        # Длинные тексты сразу в сильную модель. Клиент создаётся при первой такой строке.
+        self._long_text_factory = long_text_client if getattr(config, "LONG_TEXT_STRONG", True) else None
+        self._long_text_min_words = int(getattr(config, "LONG_TEXT_MIN_WORDS", 15))
+        self._long_text_lock = threading.Lock()
+        self._long_text_ready = False
+        self._long_client: Optional[LLMClient] = None
         # Только кэш, без запросов: для пересборки вывода после второго прохода.
         self.cache_only = False
         # Событие отмены: прокидывается в client.chat() и рвёт зависший HTTP-запрос
@@ -312,6 +320,21 @@ class Translator:
     def hybrid(self) -> bool:
         """True, если сложные строки уходят на отдельный (мощный/внешний) клиент."""
         return self._has_complex_client
+
+    def _client_for_long_text(self, text: str) -> Optional[LLMClient]:
+        """Сильная модель для длинного текста. None: текст короткий или такой модели нет."""
+        if self._long_text_factory is None or text_word_count(text) < self._long_text_min_words:
+            return None
+        with self._long_text_lock:
+            if not self._long_text_ready:
+                self._long_text_ready = True
+                try:
+                    self._long_client = self._long_text_factory()[0]
+                except Exception as e:
+                    self._log(f"[Routing] Сильная модель не запустилась: {e}. Длинные тексты идут как обычно.")
+                if self._long_client is not None:
+                    self._log(f"[Routing] Тексты от {self._long_text_min_words} слов идут сразу в {self._long_client.name}.")
+            return self._long_client
 
     def _pick_client(self, text: str) -> LLMClient:
         """
@@ -391,12 +414,13 @@ class Translator:
             return text
 
         # если клиент не задан явно — выбираем по сложности строки (STEP 5)
-        use_client = client or self._pick_client(text)
+        use_client = client or self._client_for_long_text(text) or self._pick_client(text)
         src_tokens = _extract_tokens(text)
         out = strip_newline_dots(text, self._translate_masked(text, target_lang, use_client))
         # Сбой, отмена, пустой ответ или брак: отдаём исходник
         if self._answer_rejected(out, src_tokens, target_lang, text):
-            if self._is_model_fault(out):
+            # Сильная модель уже ответила: второй проход спросил бы её же о том же.
+            if self._is_model_fault(out) and (client is not None or use_client is not self._long_client):
                 self._note_rejected(text, target_lang)
             return text
 
@@ -446,7 +470,7 @@ class Translator:
 
             # сложные строки — одиночками; translate() сам сроутит их на
             # complex/standard-клиент (или на light с пометкой, если его нет).
-            if _is_complex_text(t, self.complex_len_threshold):
+            if _is_complex_text(t, self.complex_len_threshold) or self._client_for_long_text(t) is not None:
                 results[i] = self.translate(t, target_lang)
                 continue
 

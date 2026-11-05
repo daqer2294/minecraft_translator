@@ -51,6 +51,11 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com")
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
 
+# Длинные тексты сразу идут в сильную модель, если она есть в Ollama или скачан Standard.
+# На 100 описаниях: сильная 100 чистых из 100, основная 76. Без сильной всё идёт как обычно.
+LONG_TEXT_STRONG = os.environ.get("LONG_TEXT_STRONG", "1") != "0"
+LONG_TEXT_MIN_WORDS = int(os.environ.get("LONG_TEXT_MIN_WORDS", "15"))
+
 # Локальный инференс (llama.cpp / GGUF)
 LOCAL_MODEL_PATH = os.environ.get("LOCAL_MODEL_PATH", "")       # путь к .gguf (in-process)
 LOCAL_SERVER_URL = os.environ.get("LOCAL_SERVER_URL", "")       # URL llama-server (server mode)

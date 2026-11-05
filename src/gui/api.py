@@ -546,11 +546,13 @@ class Api:
             cfg.external_api_key = config.OPENAI_API_KEY
             cfg.tier = self._state["tier"]
             primary, complex_client = factory.build_clients(cfg)
+            strong_client = factory.shared_strong_client(cfg)
             # P0-3: язык — снимок на весь прогон (как уже сделано для dry/write)
             tr = Translator(
                 primary, cache, strict=True, complex_client=complex_client,
                 log=self._log, cancel_event=self._translate_cancel,
                 target_lang=target_lang, before_request=self._control.wait_if_paused,
+                long_text_client=strong_client,
             )
 
             mirrorer.mirror_translate_dir(
@@ -561,7 +563,7 @@ class Api:
                 on_tick=self._on_tick,
                 cancel_event=self._translate_cancel,
                 target_lang=target_lang,
-                strong_client=lambda: factory.build_strong_client(cfg),
+                strong_client=strong_client,
             )
             # Отмена без исключения из on_tick: mirrorer вышел сам, но это не «Готово».
             if self._translate_cancel is not None and self._translate_cancel.is_set():

@@ -175,6 +175,11 @@ def _plain_text(text: str) -> str:
     return MARKUP_RE.sub(" ", _URL_RE.sub(" ", text)).strip()
 
 
+def text_word_count(text: str) -> int:
+    """Сколько слов в тексте, без ссылок, разметки и кода."""
+    return len(_WORD_RE.findall(_plain_text(text)))
+
+
 def answer_without_cyrillic(source: str, answer: str, target_lang: str) -> bool:
     """
     В источнике от двух слов, а в ответе на язык с кириллицей нет ни одной её буквы:
