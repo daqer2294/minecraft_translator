@@ -66,6 +66,14 @@ class Reasons(unittest.TestCase):
         for source, value in (("Pokémon team", "Команда Pokémon"), ("Screens", "На MacBook'ах"), ("Maps", "Карты (mipmapping)")):
             self.assertIsNone(rejection_reason(source, value, "ru_ru"))
 
+    def test_changed_command_and_identifier_are_named(self):
+        self.assertIn("команда или идентификатор", rejection_reason("Run /cp search now", "Запустите /cp поиск", "ru_ru"))
+        self.assertIn("команда или идентификатор", rejection_reason('The "player.icon" value', 'Значение "игрок.иконка"', "ru_ru"))
+
+    def test_invented_tag_is_named(self):
+        self.assertIn("выдуманный тег", rejection_reason("Iron Ingot", "Железный слиток[ru]", "ru_ru"))
+        self.assertIsNone(rejection_reason("Hold [Shift]", "Удерживайте [Shift]", "ru_ru"))
+
     def test_equal_to_source_is_not_a_reason(self):
         for text in ("Sodium", "Minecraft", "Share %s"):
             self.assertIsNone(rejection_reason(text, text, "ru_ru"))
@@ -137,6 +145,25 @@ class CleanCache(unittest.TestCase):
             cleaned = json.load(f)
         self.assertNotIn("Iron Ingot", cleaned["ru_ru"])
         self.assertEqual(cleaned["de_de"], DATA["de_de"])
+
+    def test_kept_string_stays_and_is_reported(self):
+        with open(self.path, encoding="utf-8") as f:
+            data = json.load(f)
+        data["ru_ru"]["Iron Ingot"] = "Железный слиток[ru]"
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        removed = clean_cache(self.path)["removed"]
+        stats = clean_cache(self.path, apply=True, keep=["Iron Ingot"])
+        self.assertEqual(stats["removed"], removed - 1)
+        self.assertEqual([entry.source for entry in stats["kept"]], ["Iron Ingot"])
+        self.assertNotIn("Iron Ingot", [entry.source for entry in stats["entries"]])
+        with open(self.path, encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["ru_ru"]["Iron Ingot"], "Железный слиток[ru]")
+
+    def test_kept_string_missing_from_cache_changes_nothing(self):
+        with self.assertRaises(KeyError):
+            clean_cache(self.path, apply=True, keep=["Нет такой строки"])
+        self.assertFalse(os.path.exists(self.path + BACKUP_SUFFIX))
 
     def test_listed_string_missing_from_cache_changes_nothing(self):
         with self.assertRaises(KeyError):

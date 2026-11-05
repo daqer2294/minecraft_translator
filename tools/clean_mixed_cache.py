@@ -2,7 +2,7 @@
 Удаляет из кэша переводы, которые не проходят текущие проверки ответа модели:
 смесь алфавитов, иероглифы, текст наших промптов, выдуманный ответ на короткую строку,
 вступление или нераскрытая маска, латинское слово не из источника,
-потеря или искажение разметки и кода.
+изменённая команда или идентификатор, выдуманный тег, потеря или искажение разметки и кода.
 
 По умолчанию только показывает, что будет удалено и почему. С --apply делает бэкап
 рядом с кэшем и записывает новый файл. Существующий бэкап не перезаписывается.
@@ -10,7 +10,8 @@
 --also-from добавляет к удалению строки из файла JSON (список исходных строк): брак,
 который проверки не ловят. --retranslate после удаления сразу переводит эти строки
 сильной моделью в Ollama, минуя основную. Ответы проходят все те же проверки, брак
-в кэш не попадает.
+в кэш не попадает. --keep-from оставляет строки из файла на месте: брак, по которому
+ещё нет решения.
 
     python -m tools.clean_mixed_cache
     python -m tools.clean_mixed_cache --apply
@@ -31,9 +32,17 @@ from src import config
 from src.translators import PROMPT_LEAK, Translator, _extract_tokens, _has_foreign_cjk, _is_bare_id
 from src.utils.cache import TranslationCache
 from src.utils.helpers import is_untranslatable
-from src.utils.markup import foreign_latin_words, has_intro_or_raw_mask, has_mixed_script_word, looks_hallucinated
+from src.utils.markup import (
+    foreign_latin_words,
+    has_intro_or_raw_mask,
+    has_mixed_script_word,
+    invented_tags,
+    looks_hallucinated,
+    protected_code_changed,
+    protected_code_tokens,
+)
 
-BACKUP_SUFFIX = ".before-latin-cleanup"
+BACKUP_SUFFIX = ".before-guard-cleanup"
 LISTED_REASON = "указана вручную"
 
 
@@ -72,6 +81,11 @@ def rejection_reason(source: str, value: str, lang: str) -> Optional[str]:
     words = foreign_latin_words(source, value)
     if words:
         return f"латинское слово не из источника: {words[:3]}"
+    if protected_code_changed(source, value):
+        return f"команда или идентификатор: было {protected_code_tokens(source)}, стало {protected_code_tokens(value)}"
+    tags = invented_tags(source, value)
+    if tags:
+        return f"выдуманный тег: {tags[:3]}"
     source_tokens, value_tokens = _extract_tokens(source), _extract_tokens(value)
     if source_tokens != value_tokens:
         lost = sorted(set(source_tokens) - set(value_tokens))
@@ -91,7 +105,7 @@ def rejected_entries(data: Dict[str, Dict[str, str]]) -> List[Rejected]:
 
 
 def clean_cache(
-    path: str, apply: bool = False, also: Iterable[str] = (), also_lang: str = "ru_ru",
+    path: str, apply: bool = False, also: Iterable[str] = (), also_lang: str = "ru_ru", keep: Iterable[str] = (),
 ) -> Dict[str, object]:
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -101,15 +115,19 @@ def clean_cache(
     rejected = rejected_entries(data)
     found = {(entry.lang, entry.source) for entry in rejected}
     mapping = data.get(also_lang, {})
-    missing = [source for source in also if source not in mapping]
+    keep = list(keep)
+    missing = [source for source in [*also, *keep] if source not in mapping]
     if missing:
         raise KeyError(f"Этих строк нет в кэше, ничего не удалено: {missing}")
     for source in dict.fromkeys(also):
         if (also_lang, source) not in found:
             rejected.append(Rejected(also_lang, source, mapping[source], LISTED_REASON))
+    kept = [entry for entry in rejected if entry.lang == also_lang and entry.source in keep]
+    rejected = [entry for entry in rejected if entry not in kept]
     before = sum(len(m) for m in data.values())
     stats: Dict[str, object] = {
         "before": before, "removed": len(rejected), "after": before - len(rejected), "entries": rejected,
+        "kept": kept,
     }
     if not apply or not rejected:
         return stats
@@ -161,6 +179,7 @@ def main(argv=None) -> int:
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--also-from", help="файл JSON со списком строк, которые удалить вместе с браком")
     parser.add_argument("--also-lang", default="ru_ru", help="язык записей из --also-from")
+    parser.add_argument("--keep-from", help="файл JSON со списком строк, которые оставить в кэше, даже если они брак")
     parser.add_argument("--retranslate", action="store_true", help="сразу перевести удалённое сильной моделью в Ollama")
     args = parser.parse_args(argv)
     if args.retranslate and not args.apply:
@@ -169,12 +188,18 @@ def main(argv=None) -> int:
     if args.also_from:
         with open(args.also_from, "r", encoding="utf-8") as f:
             also = json.load(f)
+    keep: List[str] = []
+    if args.keep_from:
+        with open(args.keep_from, "r", encoding="utf-8") as f:
+            keep = json.load(f)
     # Клиент проверяется до удаления: без модели записи не должны пропасть впустую.
     client = strong_ollama_client() if args.retranslate else None
-    stats = clean_cache(args.cache, apply=args.apply, also=also, also_lang=args.also_lang)
+    stats = clean_cache(args.cache, apply=args.apply, also=also, also_lang=args.also_lang, keep=keep)
     if not args.apply:
         for i, entry in enumerate(stats["entries"], 1):
             print(f"{i}. [{entry.reason}]\n   {entry.source!r}\n   -> {entry.value!r}")
+    for entry in stats["kept"]:
+        print(f"Оставлено без удаления: [{entry.reason}]\n   {entry.source!r}\n   -> {entry.value!r}")
     action = "удалено" if args.apply else "будет удалено"
     print(f"{args.cache}: было {stats['before']}, {action} {stats['removed']}, останется {stats['after']}")
     if client is not None:
