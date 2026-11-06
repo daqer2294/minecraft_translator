@@ -204,6 +204,8 @@ def report(base_input: Optional[str], limit: Optional[int] = None, log=lambda s:
         f"Система: {platform.platform()} | процессор: {platform.processor()}",
         f"Железо: {hw.summary()}",
         f"Перевод: {hp.inference_device(hw)} | llama_cpp умеет GPU: {hp.gpu_offload_supported()}",
+        *([f"Почему llama_cpp не загрузилась:", *("  " + x for x in hp.llama_cpp_error(full=True).rstrip().splitlines())]
+          if hp.llama_cpp_error() else []),
         f"Ollama: {(_ollama('/api/version') or {}).get('version', 'не найдена')}",
         f"Строк: {len(strings)}, из них от 15 слов: {sum(text_word_count(s) >= 15 for s in strings)}",
         "",

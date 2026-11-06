@@ -193,12 +193,13 @@ class LocalLlamaCppClient(LLMClient):
             )
 
         try:
+            from .. import win_dll
+            win_dll.prepare_search_path()
             from llama_cpp import Llama  # тяжёлый импорт — только при реальном использовании
         except Exception as e:  # pragma: no cover - зависит от окружения
             raise LLMClientError(
-                "llama-cpp-python не установлен. Установите пакет "
-                "(pip install llama-cpp-python) или используйте server mode "
-                f"(local_server_url). Исходная ошибка: {e}"
+                f"llama_cpp не загрузилась: {type(e).__name__}: {e}. Причину покажет запуск с ключом "
+                "--diagnose. Без неё работают режимы Ollama и внешний API."
             ) from e
 
         import os

@@ -187,17 +187,32 @@ def recommend_tier(gpu_vram_mb: int, cpu_cores: int, ram_mb: int) -> str:
 # ---------------- чем считает локальная модель ----------------
 
 _OFFLOAD: List[Optional[bool]] = []
+_OFFLOAD_ERROR: List[str] = []  # [короткий текст, полный traceback], если llama_cpp не загрузилась
 
 
 def gpu_offload_supported() -> Optional[bool]:
-    """Умеет ли установленный llama_cpp считать на GPU (CUDA, Metal). None: llama_cpp нет."""
+    """Умеет ли установленный llama_cpp считать на GPU (CUDA, Metal). None: llama_cpp не загрузилась."""
     if not _OFFLOAD:
         try:
+            from .. import win_dll
+            win_dll.prepare_search_path()
             import llama_cpp
             _OFFLOAD.append(bool(llama_cpp.llama_supports_gpu_offload()))
-        except Exception:
+        except BaseException as e:  # и SystemExit, и KeyboardInterrupt из чужого кода импорта
+            if isinstance(e, KeyboardInterrupt):
+                raise
+            import traceback
             _OFFLOAD.append(None)
+            _OFFLOAD_ERROR[:] = [f"{type(e).__name__}: {e}", traceback.format_exc()]
     return _OFFLOAD[0]
+
+
+def llama_cpp_error(full: bool = False) -> str:
+    """Почему не загрузилась llama_cpp: текст исключения или traceback. Пусто, если загрузилась."""
+    gpu_offload_supported()
+    if not _OFFLOAD_ERROR:
+        return ""
+    return _OFFLOAD_ERROR[1] if full else _OFFLOAD_ERROR[0]
 
 
 def inference_device(info: Optional["HardwareInfo"], offload: Optional[bool] = None) -> str:
@@ -209,7 +224,8 @@ def inference_device(info: Optional["HardwareInfo"], offload: Optional[bool] = N
     if offload is None:
         offload = gpu_offload_supported()
     if offload is None:
-        return "локальная модель недоступна"
+        error = llama_cpp_error()
+        return "локальная модель недоступна" + (f" (llama_cpp: {error})" if error else "")
     name = info.gpu_name if info is not None and info.gpu_available else ""
     if name and offload:
         return f"GPU: {name}"

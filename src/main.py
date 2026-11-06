@@ -44,10 +44,28 @@ def _run_speed_test():
         ctypes.windll.user32.MessageBoxW(None, message, "Minecraft Translator", 0x40)
 
 
+def _run_diagnose():
+    """--diagnose: почему не грузится llama_cpp. Отчёт в diagnose.txt, на Windows сообщение с путём."""
+    from src import win_dll
+    try:
+        message = "Диагностика готова. Отчёт: " + win_dll.cli()
+    except BaseException as e:
+        message = f"Диагностика не выполнена: {type(e).__name__}: {e}"
+    print(message)
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, message, "Minecraft Translator", 0x40)
+
+
 def main():
-    from src import platform_guard
+    from src import platform_guard, win_dll
 
     platform_guard.ensure_std_streams()
+    if "--diagnose" in sys.argv:
+        _run_diagnose()
+        return
+    # До любого импорта llama_cpp: её DLL ищут зависимости через PATH (см. win_dll).
+    win_dll.prepare_search_path()
     if "--speed-test" in sys.argv:
         _run_speed_test()
         return

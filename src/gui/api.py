@@ -137,7 +137,16 @@ class Api:
             },
         }
         self._refresh_model_status()
+        self._log_llama_cpp_error()
         self._log("Готово. Выберите папку модпака и нажмите «Старт».")
+
+    def _log_llama_cpp_error(self):
+        """Настоящая причина, по которой нет локальной модели, а не только «недоступна»."""
+        error = hp.llama_cpp_error()
+        if error:
+            self._log(f"Локальная модель недоступна, llama_cpp не загрузилась: {error}")
+            self._log("Подробности: запустите программу с ключом --diagnose, отчёт попадёт в diagnose.txt. "
+                      "Перевод через Ollama или внешний API работает и без неё.")
 
     # ================= helpers =================
 
