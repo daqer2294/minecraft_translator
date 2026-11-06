@@ -1,0 +1,226 @@
+{
+ "Cobblemon": {
+  "jars": 71,
+  "lang_files": 66,
+  "total": 17781,
+  "uniq_all": 15845,
+  "already_ru": 13343,
+  "untranslatable": 297,
+  "todo": 4141,
+  "uniq_todo": 3852,
+  "chars_uniq_todo": 202457,
+  "dup_ns_key": 116,
+  "ru_identical": 1268,
+  "per_kind": {
+   "jar": 17064,
+   "nested": 717
+  },
+  "untr": {
+   "bare_markup": 45,
+   "no_letters": 58,
+   "empty": 159,
+   "single_letter": 24,
+   "url": 8,
+   "translation_key": 3
+  },
+  "markup": {
+   "%s/%d": 347,
+   "\\n": 265,
+   "{x}": 2,
+   "§": 118,
+   "<tag>": 68
+  },
+  "len_pct": {
+   "0.5": 27,
+   "0.9": 125,
+   "0.99": 287
+  },
+  "top_jars": [
+   [
+    "Cobblemon-fabric-1.7.3+1.21.1.jar",
+    1061
+   ],
+   [
+    "journeymap-fabric-1.21.1-6.0.0-beta.52.jar",
+    672
+   ],
+   [
+    "AdvancedLootInfo-fabric-1.21.1-1.1.7.jar",
+    447
+   ],
+   [
+    "CraftPresence-2.6.1+1.21.1-fabric.jar",
+    276
+   ],
+   [
+    "entity_model_features_fabric_1.21.1-2.4.1.jar",
+    252
+   ],
+   [
+    "bookshelf-fabric-1.21.1-21.1.64.jar",
+    196
+   ],
+   [
+    "jei-1.21.1-fabric-19.21.2.313.jar",
+    131
+   ],
+   [
+    "fabric-api-0.116.7+1.21.1.jar",
+    126
+   ]
+  ],
+  "seconds": 0.3
+ },
+ "ATM10": {
+  "jars": 495,
+  "lang_files": 444,
+  "total": 162977,
+  "uniq_all": 131142,
+  "already_ru": 86085,
+  "untranslatable": 746,
+  "todo": 76146,
+  "uniq_todo": 61356,
+  "chars_uniq_todo": 2093854,
+  "dup_ns_key": 2524,
+  "ru_identical": 7668,
+  "per_kind": {
+   "jar": 159947,
+   "nested": 1133,
+   "kubejs": 1897
+  },
+  "untr": {
+   "bare_markup": 312,
+   "empty": 153,
+   "single_letter": 114,
+   "no_letters": 111,
+   "numeric_unit": 30,
+   "snake_id": 5,
+   "url": 18,
+   "translation_key": 2,
+   "namespaced_id": 1
+  },
+  "markup": {
+   "%s/%d": 1914,
+   "\\n": 1165,
+   "§": 113,
+   "{x}": 10,
+   "<tag>": 9,
+   "$(macro)": 3,
+   "&code": 152,
+   "json": 1
+  },
+  "len_pct": {
+   "0.5": 24,
+   "0.9": 43,
+   "0.99": 291
+  },
+  "top_jars": [
+   [
+    "bibliowoods-1.21.1-1.6.2.jar",
+    10833
+   ],
+   [
+    "bibliobiomes-1.21.1-1.6.1.jar",
+    9577
+   ],
+   [
+    "chipped-neoforge-1.21.1-4.0.2.jar",
+    7237
+   ],
+   [
+    "rechiseled-1.2.6-neoforge-mc1.21.jar",
+    3645
+   ],
+   [
+    "neovitae-1.21.1-1.1.48.jar",
+    3274
+   ],
+   [
+    "chisel-neoforge-2.0.1+mc1.21.1.jar",
+    2769
+   ],
+   [
+    "occultism-1.21.1-neoforge-1.224.6.jar",
+    2215
+   ],
+   [
+    "dyenamicsandfriends-1.21.1-2.2.2.jar",
+    2090
+   ]
+  ],
+  "seconds": 2.4
+ },
+ "Stranded": {
+  "jars": 160,
+  "lang_files": 125,
+  "total": 32297,
+  "uniq_all": 29282,
+  "already_ru": 18953,
+  "untranslatable": 223,
+  "todo": 13121,
+  "uniq_todo": 12306,
+  "chars_uniq_todo": 356680,
+  "dup_ns_key": 56,
+  "ru_identical": 583,
+  "per_kind": {
+   "jar": 32053,
+   "nested": 244
+  },
+  "untr": {
+   "no_letters": 36,
+   "single_letter": 35,
+   "bare_markup": 64,
+   "empty": 76,
+   "url": 8,
+   "translation_key": 1,
+   "numeric_unit": 3
+  },
+  "markup": {
+   "%s/%d": 576,
+   "{x}": 4,
+   "\\n": 247,
+   "§": 350,
+   "<tag>": 71
+  },
+  "len_pct": {
+   "0.5": 22,
+   "0.9": 37,
+   "0.99": 190
+  },
+  "top_jars": [
+   [
+    "chipped-neoforge-1.21.1-4.0.2.jar",
+    7265
+   ],
+   [
+    "simplyswords-neoforge-1.62.0-1.21.1.jar",
+    834
+   ],
+   [
+    "open-parties-and-claims-neoforge-1.21.1-0.25.8.jar",
+    589
+   ],
+   [
+    "emi_loot-0.7.9+1.21+neoforge.jar",
+    563
+   ],
+   [
+    "xaeroworldmap-neoforge-1.21.1-1.40.6.jar",
+    337
+   ],
+   [
+    "ftb-quests-neoforge-2101.1.21.jar",
+    311
+   ],
+   [
+    "[1.21.1-Neoforge] Hybrid Aquatic 1.5.4.jar",
+    257
+   ],
+   [
+    "entity_model_features_1.21-neoforge-3.0.10.jar",
+    256
+   ]
+  ],
+  "seconds": 0.6
+ }
+}

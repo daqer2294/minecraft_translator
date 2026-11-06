@@ -45,7 +45,6 @@ async function init() {
   if (!data) { _inited = false; return; }  // повторим позже, если API ещё не готов
   OPTIONS = data.options;
   buildLangs(OPTIONS.langs);
-  buildModelSelectors();
   render(data.state);
   wireEvents();
   startPolling();
@@ -62,12 +61,6 @@ function buildLangs(langs) {
   });
 }
 
-function buildModelSelectors() {
-  // селекторы моделей открываются по кнопке "Сменить модель" — тут храним данные
-  // (в этой версии выбор моделей делаем через тир; смена конкретной модели —
-  //  через set_models, если понадобится расширять UI)
-}
-
 // ---- events ----
 function wireEvents() {
   $$('[data-pick]').forEach((b) =>
@@ -78,6 +71,7 @@ function wireEvents() {
   $("#dryRun").addEventListener("change", (e) => call("set_dry", e.target.checked).then(render));
   $("#langSel").addEventListener("change", (e) => call("set_lang", e.target.value).then(render));
   $("#tierSel").addEventListener("change", (e) => call("set_tier", e.target.value).then(render));
+  $("#gpuProfileSel").addEventListener("change", (e) => call("set_gpu_profile", e.target.value).then(render));
   $("#rescanBtn").addEventListener("click", () => call("rescan_hardware").then(render));
   $("#saveKey").addEventListener("click", () => call("set_key", $("#apiKey").value).then(render));
 
@@ -95,6 +89,7 @@ function wireEvents() {
   $("#pauseBtn").addEventListener("click", () => call("pause").then(render));
   $("#resumeBtn").addEventListener("click", () => call("resume").then(render));
   $("#stopBtn").addEventListener("click", () => call("stop").then(render));
+  $("#packBtn").addEventListener("click", () => call("build_from_cache").then(render));
 
   $("#dlStart").addEventListener("click", onDownloadConfirm);
   $("#dlCancel").addEventListener("click", () => { closeDlModal(); });        // «Позже»
@@ -230,7 +225,9 @@ function render(state) {
   pill.className = "phase " + state.phase;
 
   // железо
-  $("#hwSummary").textContent = state.hardware ? state.hardware.summary : "проба ещё не выполнялась";
+  $("#hwSummary").textContent = state.hardware
+    ? state.hardware.summary + (state.hardware.device ? " · Перевод: " + state.hardware.device : "")
+    : "проба ещё не выполнялась";
 
   // рекомендация тира (BUG 1): показываем, но НЕ переключаем автоматически
   const rec = state.hardware && state.hardware.recommended_tier;
@@ -258,6 +255,10 @@ function render(state) {
   $("#stSkip").textContent = state.skip;
   $("#stErr").textContent = state.err;
   $("#stSpeed").textContent = state.speed ? state.speed + "/с" : "—";
+  if (state.gpu_profile) $("#gpuProfileSel").value = state.gpu_profile;
+  const est = $("#estimateBox");
+  est.hidden = !(state.estimate && state.estimate.length);
+  if (!est.hidden) est.textContent = state.estimate.join("\n");
   $("#stEta").textContent = fmtEta(state.eta);
   const pct = state.total ? Math.min(100, (state.done / state.total) * 100) : 0;
   $("#progBar").style.width = pct.toFixed(1) + "%";

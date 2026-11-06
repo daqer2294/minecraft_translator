@@ -31,7 +31,48 @@ def _resource_dir() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "gui", "web")
 
 
+def _run_speed_test():
+    """Тест скорости без окна: отчёт в файл, на Windows в конце сообщение с путём к нему."""
+    from src import speed_test
+    try:
+        message = "Тест скорости закончен. Отчёт: " + speed_test.cli(sys.argv)
+    except BaseException as e:  # SystemExit с текстом ошибки тоже показать
+        message = f"Тест скорости не выполнен: {e}"
+    print(message)
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, message, "Minecraft Translator", 0x40)
+
+
+def _run_diagnose():
+    """--diagnose: почему не грузится llama_cpp. Отчёт в diagnose.txt, на Windows сообщение с путём."""
+    from src import win_dll
+    try:
+        message = "Диагностика готова. Отчёт: " + win_dll.cli()
+    except BaseException as e:
+        message = f"Диагностика не выполнена: {type(e).__name__}: {e}"
+    print(message)
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.user32.MessageBoxW(None, message, "Minecraft Translator", 0x40)
+
+
 def main():
+    from src import platform_guard, win_dll
+
+    platform_guard.ensure_std_streams()
+    if "--diagnose" in sys.argv:
+        _run_diagnose()
+        return
+    # До любого импорта llama_cpp: её DLL ищут зависимости через PATH (см. win_dll).
+    win_dll.prepare_search_path()
+    if "--speed-test" in sys.argv:
+        _run_speed_test()
+        return
+    if platform_guard.webview2_missing():
+        platform_guard.ask_to_install_webview2()
+        return
+
     import webview  # импорт здесь, чтобы модуль импортировался и без pywebview
 
     index = os.path.join(_resource_dir(), "index.html")

@@ -1,0 +1,20 @@
+{
+  "_source": "Формы из официальных описаний приёмов Cobblemon ru_ru, сверены вручную",
+  "terms": [
+    {"en": "user", "ru": "пользователь", "forms": ["user", "user's", "user’s", "users"], "roots": ["пользовател"], "check": true},
+    {"en": "target", "ru": "цель", "forms": ["target", "targets", "target's", "target’s"], "roots": [], "words": ["цель", "цели", "целью", "целей", "целям", "целями", "целях"], "check": true},
+    {"en": "flinch", "ru": "вздрогнуть", "forms": ["flinch", "flinches", "flinched", "flinching"], "roots": ["вздрог"], "check": true},
+    {"en": "stat", "ru": "показатель", "forms": ["stat", "stats"], "roots": ["показател"], "check": false},
+    {"en": "Attack", "ru": "Атака", "forms": ["Attack stat", "Attack stats", "Attack"], "roots": [], "words": ["атака", "атаки", "атаке", "атаку", "атакой", "атакою", "атак", "атакам", "атаками", "атаках"], "check": true},
+    {"en": "Defense", "ru": "Защита", "forms": ["Defense stat", "Defense stats", "Defense"], "roots": ["защит"], "check": true},
+    {"en": "Sp. Atk", "ru": "Спец. атака", "forms": ["Sp. Atk stat", "Sp. Atk stats", "Sp. Atk", "Special Attack"], "roots": ["спец", "атак"], "check": true},
+    {"en": "Sp. Def", "ru": "Спец. защита", "forms": ["Sp. Def stat", "Sp. Def stats", "Sp. Def", "Special Defense"], "roots": ["спец", "защит"], "check": true},
+    {"en": "Speed", "ru": "Скорость", "forms": ["Speed stat", "Speed stats", "Speed"], "roots": ["скорост"], "check": true},
+    {"en": "paralysis", "ru": "паралич", "forms": ["paralysis", "paralyze", "paralyzes", "paralyzed"], "roots": ["парал"], "check": true},
+    {"en": "critical hit", "ru": "критический удар", "forms": ["critical hit", "critical hits", "Critical hit", "Critical hits"], "roots": ["критическ"], "check": true},
+    {"en": "headbutt", "ru": "удар головой", "forms": ["headbutt", "headbutts"], "roots": ["удар", "голов"], "check": true},
+    {"en": "faint", "ru": "потерять сознание", "forms": ["faints", "fainted", "fainting", "will faint", "may faint", "also faint", "to faint"], "roots": ["сознан"], "check": true},
+    {"en": "move", "ru": "приём", "forms": ["this move", "This move", "the move", "The move", "that move", "That move", "any move", "Any move", "a move", "A move", "moves such as", "moves like", "the moves", "The moves"], "roots": ["прием"], "check": true},
+    {"en": "Pokémon", "ru": "покемон", "forms": ["Pokémon"], "roots": ["покемон"], "check": false}
+  ]
+}

@@ -10,7 +10,7 @@ from typing import List, Optional
 # =============================================================================
 # Автодетект локально запущенной Ollama.
 #
-# Ollama слушает по умолчанию http://localhost:11434 и даёт:
+# Ollama слушает по умолчанию 127.0.0.1:11434 (docs.ollama.com/faq) и даёт:
 #   - /api/tags   → список установленных моделей (используем для детекта);
 #   - /v1/...      → OpenAI-совместимый эндпоинт (используем для инференса через
 #                    существующий OpenAICompatibleClient, без ключа).
@@ -19,7 +19,9 @@ from typing import List, Optional
 # "не найдено", без исключений наружу.
 # =============================================================================
 
-OLLAMA_DEFAULT_URL = "http://localhost:11434"
+# Не «localhost»: на Windows он сначала разрешается в ::1, а Ollama слушает только IPv4.
+# Отказ на ::1 там длится около секунды и дольше, при таймауте пробы 2 с Ollama могла не найтись.
+OLLAMA_DEFAULT_URL = "http://127.0.0.1:11434"
 
 # Рекомендованная модель для перевода (лёгкая, многоязычная).
 RECOMMENDED_OLLAMA_MODEL = "qwen2.5:3b"
@@ -34,7 +36,7 @@ class OllamaModel:
 @dataclass
 class OllamaStatus:
     available: bool               # ответила ли Ollama
-    base_url: str                 # база (без /v1), напр. http://localhost:11434
+    base_url: str                 # база (без /v1), напр. http://127.0.0.1:11434
     models: List[OllamaModel] = field(default_factory=list)
     error: str = ""              # текст ошибки, если не ответила (для диагностики)
 

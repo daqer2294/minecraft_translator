@@ -2,34 +2,82 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import threading
 import time
 import random
 import urllib.error
 from typing import Optional, List, Tuple, Dict
 
 from .utils.cache import TranslationCache
-from .llm.base import LLMClient, RateLimitError
+from .utils.helpers import is_untranslatable
+from .utils.markup import (
+    MARKUP_RE,
+    MASK_PROMPT_NOTE,
+    MASK_PROMPT_NOTE_RU,
+    answer_without_cyrillic,
+    foreign_latin_words,
+    has_intro_or_raw_mask,
+    has_mixed_script_word,
+    invented_tags,
+    leftover_english_words,
+    looks_hallucinated,
+    mask,
+    protected_code_changed,
+    strip_newline_dots,
+    text_word_count,
+    unmask,
+)
+from .glossary import GLOSSARY_NOTE
+from .utils.helpers import replace_file
+from .utils.prompt_leak import PromptLeakDetector
+from .llm.base import LLMClient, RateLimitError, LLMTimeoutError, LLMCancelledError, LLMTruncatedError
 from . import config
 
 # -------- защитные регекспы --------
-RE_PLACEHOLDER = re.compile(
-    r"%(?:\d+\$)?-?\d*(?:\.\d+)?[sdifx]|"   # %s, %1$s, %02d
-    r"\{[\w\.]+\}"                          # {count}, {0}, {player.name}
-)
-RE_NAMESPACE = re.compile(r"[A-Za-z0-9_.-]+:[A-Za-z0-9_/.-]+")
 RE_LATIN = re.compile(r"[A-Za-z]")
 RE_CYR   = re.compile(r"[А-Яа-яЁё]")
+# ID объекта FTB Quests ("18E5446B92E771B8") или ссылка на него ("#18E5446B92E771B8")
+RE_BARE_ID = re.compile(r"#?[0-9A-Fa-f]{16}")
+
+
+# Лимит ответа. Перевод занимает около 0,5 токена на символ источника, запас почти
+# тройной. Без лимита зациклившаяся модель пишет до конца контекста: минуты на строку.
+_MIN_OUTPUT_TOKENS = 128
+_MIN_BATCH_ITEM_TOKENS = 32
+_BATCH_OVERHEAD_TOKENS = 64
+
+
+def _single_token_cap(text: str) -> int:
+    return max(_MIN_OUTPUT_TOKENS, int(len(text) * 1.5))
+
+
+def _batch_token_cap(texts: List[str]) -> int:
+    return sum(max(_MIN_BATCH_ITEM_TOKENS, int(len(t) * 1.5)) for t in texts) + _BATCH_OVERHEAD_TOKENS
+
+
+# Иероглифы, кана и хангыль. Модель иногда вставляет их в чужой язык: «Необходимо至少».
+RE_CJK = re.compile("[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff]")
+_CJK_LANGUAGES = ("zh", "ja", "ko", "lzh")
+
+
+def _has_foreign_cjk(text: str, target_lang: str) -> bool:
+    """В ответе есть CJK-символы, а целевой язык не китайский, японский или корейский."""
+    if target_lang.lower().split("_")[0] in _CJK_LANGUAGES:
+        return False
+    return RE_CJK.search(text) is not None
+
+
+def _is_bare_id(s: str) -> bool:
+    return RE_BARE_ID.fullmatch(s.strip()) is not None
 
 
 def _extract_tokens(s: str) -> Tuple[str, ...]:
-    """Достаём плейсхолдеры и namespaced ID из строки."""
+    """Вся разметка строки: она должна совпасть в источнике и переводе, порядок не важен."""
     if not s:
         return tuple()
-    toks: List[str] = []
-    toks.extend(RE_PLACEHOLDER.findall(s))
-    toks.extend(RE_NAMESPACE.findall(s))
-    return tuple(sorted(toks))
+    return tuple(sorted(MARKUP_RE.findall(s)))
 
 
 def _looks_russian_only(s: str) -> bool:
@@ -140,6 +188,17 @@ BATCH_SYSTEM_PROMPT_TEMPLATE = (
 )
 
 
+# Все тексты, которые модель может пересказать вместо перевода. Новый промпт добавляется сюда.
+PROMPT_TEXTS = (
+    SINGLE_SYSTEM_PROMPT_TEMPLATE,
+    BATCH_SYSTEM_PROMPT_TEMPLATE,
+    MASK_PROMPT_NOTE,
+    MASK_PROMPT_NOTE_RU,
+    GLOSSARY_NOTE,
+)
+PROMPT_LEAK = PromptLeakDetector(PROMPT_TEXTS)
+
+
 def _render_prompt(template: str, target_lang: str) -> str:
     lang_name = _lang_name_from_mc_code(target_lang)
     return template.replace("__LANG_NAME__", lang_name).replace("__LANG_CODE__", target_lang)
@@ -178,7 +237,15 @@ class Translator:
         strict: bool = True,
         complex_client: Optional[LLMClient] = None,
         log: Optional[callable] = None,
+        cancel_event: Optional[threading.Event] = None,
+        target_lang: Optional[str] = None,
+        before_request: Optional[callable] = None,
+        long_text_client: Optional[callable] = None,
     ):
+        # P0-3: язык фиксируется ОДИН раз на весь прогон. Воркеры больше не читают
+        # изменяемый глобал config.TARGET_LANG — смена языка в UI во время перевода
+        # не может «расщепить» вывод на два языка.
+        self.target_lang = target_lang or getattr(config, "TARGET_LANG", "ru_ru")
         self.client = client                       # light / simple
         # есть ли ВЫДЕЛЕННЫЙ клиент для сложных строк
         self._has_complex_client = complex_client is not None
@@ -187,13 +254,52 @@ class Translator:
         self.strict = strict
         self._log = log or print
         self._warned_complex_fallback = False
+        # Ошибка последнего запроса своя у каждого потока: воркеры не мешают друг другу.
+        self._thread_state = threading.local()
+        # Строки, где модель ответила браком: их переводит второй проход.
+        self._rejected: Dict[Tuple[str, str], None] = {}
+        # Для теста скорости: причина отката по исходной строке и тексты ошибок модели.
+        # None (по умолчанию) — не записывать, в обычном прогоне это не нужно.
+        self.outcomes: Optional[Dict[str, str]] = None
+        self.errors: Dict[str, int] = {}
+        self._rejected_lock = threading.Lock()
+        # Длинные тексты сразу в сильную модель. Клиент создаётся при первой такой строке.
+        self._long_text_factory = long_text_client if getattr(config, "LONG_TEXT_STRONG", True) else None
+        self._long_text_min_words = int(getattr(config, "LONG_TEXT_MIN_WORDS", 15))
+        self._long_text_lock = threading.Lock()
+        self._long_text_ready = False
+        self._long_client: Optional[LLMClient] = None
+        # Словарь терминов сборки. Задаётся на прогон, см. set_glossary.
+        self.glossary = None
+        # Длинные тексты в jar переводить сильной моделью одновременно с остальными (профиль fast_cpu).
+        self.overlap_strong = False
+        # Фильтр ключей jar на проход «сначала интерфейс» (mirrorer). None: все ключи.
+        self.key_filter = None
+        # Только кэш, без запросов: для пересборки вывода после второго прохода.
+        self.cache_only = False
+        # Брак основной модели, ещё не переведённый вторым проходом, переживает остановку:
+        # после перезапуска такие строки сразу идут во второй проход, основную не спрашиваем снова.
+        self._pending_path = f"{cache.path}.pending.json" if getattr(cache, "path", "") else ""
+        self._pending_open = self._load_pending()
+        self._pending_unsaved = 0
+        # Список пишется только во время прогона по сборке (mirrorer): там его закроет второй проход.
+        self.persist_pending = False
+        # Событие отмены: прокидывается в client.chat() и рвёт зависший HTTP-запрос
+        # к модели по нажатию «Стоп» (а не ждёт границы файла).
+        self.cancel_event = cancel_event
+        # Вызывается перед каждым запросом к модели: здесь держится пауза.
+        self._before_request = before_request
+        self._warmup_logged = False
+        # Таймауты запроса к модели. Первый запрос к Ollama/локальному серверу
+        # может грузить модель в память (десятки секунд), поэтому щедрые значения.
+        self.single_timeout = float(getattr(config, "LLM_SINGLE_TIMEOUT", 120.0))
+        self.batch_timeout  = float(getattr(config, "LLM_BATCH_TIMEOUT", 180.0))
 
         # Параметры ретраев и batch-а
         self.max_attempts = int(getattr(config, "RETRY_MAX_ATTEMPTS", 6))
         self.base_delay   = float(getattr(config, "RETRY_BASE_DELAY", 2.0))
         self.max_delay    = float(getattr(config, "RETRY_MAX_DELAY", 30.0))
         self.jitter       = float(getattr(config, "RETRY_JITTER", 0.25))
-        self.cache_fallbacks = bool(getattr(config, "CACHE_FALLBACKS", True))
         self.batch_size   = int(getattr(config, "BATCH_SIZE", 50))
 
         # Порог "сложной" строки — такие лучше гонять одиночками
@@ -205,9 +311,102 @@ class Translator:
             pass
 
     @property
+    def _last_error(self) -> Optional[Exception]:
+        return getattr(self._thread_state, "last_error", None)
+
+    @_last_error.setter
+    def _last_error(self, error: Optional[Exception]) -> None:
+        self._thread_state.last_error = error
+
+    def _load_pending(self) -> set:
+        if not self._pending_path or not os.path.isfile(self._pending_path):
+            return set()
+        try:
+            with open(self._pending_path, encoding="utf-8") as f:
+                return {(text, lang) for lang, texts in json.load(f).items() for text in texts}
+        except (OSError, ValueError, AttributeError):
+            return set()
+
+    def _save_pending(self) -> None:
+        # Сборка из кэша идёт рядом с переводом и не должна переписать его список.
+        if not self._pending_path or self.cache_only or not self.persist_pending:
+            return
+        with self._rejected_lock:
+            items = set(self._rejected) | self._pending_open
+            self._pending_unsaved = 0
+        if not items:
+            if os.path.exists(self._pending_path):
+                os.remove(self._pending_path)
+            return
+        data: Dict[str, List[str]] = {}
+        for text, lang in sorted(items):
+            data.setdefault(lang, []).append(text)
+        tmp = self._pending_path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        replace_file(tmp, self._pending_path)
+
+    def clear_pending(self) -> None:
+        """Второй проход закончен: список ожидающих строк больше не нужен."""
+        with self._rejected_lock:
+            self._pending_open.clear()
+        self._save_pending()
+
+    def take_rejected(self) -> List[Tuple[str, str]]:
+        """Отдаёт накопленные (строка, язык) с браком модели и очищает список."""
+        with self._rejected_lock:
+            items = list(self._rejected)
+            self._rejected.clear()
+        return items
+
+    def _note_rejected(self, text: str, target_lang: str) -> None:
+        with self._rejected_lock:
+            self._rejected[(text, target_lang)] = None
+            self._pending_unsaved += 1
+            due = self._pending_unsaved >= 50
+        if due:
+            self._save_pending()
+
+    def _is_model_fault(self, out: Optional[str]) -> bool:
+        """Брак самой модели. Обрыв связи, таймаут и «Стоп» сюда не входят."""
+        if out:
+            return True
+        if self._cancelled():
+            return False
+        error = self._last_error
+        return error is None or isinstance(error, LLMTruncatedError)
+
+    @property
     def hybrid(self) -> bool:
         """True, если сложные строки уходят на отдельный (мощный/внешний) клиент."""
         return self._has_complex_client
+
+    def set_glossary(self, glossary) -> None:
+        self.glossary = glossary
+
+    def _glossary_note(self, texts: List[str]) -> str:
+        return self.glossary.prompt_note(texts) if self.glossary is not None else ""
+
+    def _glossary_rejects(self, source: str, answer: str) -> bool:
+        """Термин из источника потерян в ответе или модель вернула саму подсказку."""
+        if self.glossary is None:
+            return False
+        return self.glossary.echoed(answer) or bool(self.glossary.missing(source, answer))
+
+    def _client_for_long_text(self, text: str) -> Optional[LLMClient]:
+        """Сильная модель для длинного текста. None: текст короткий или такой модели нет."""
+        if self._long_text_factory is None or text_word_count(text) < self._long_text_min_words:
+            return None
+        with self._long_text_lock:
+            if not self._long_text_ready:
+                self._long_text_ready = True
+                try:
+                    self._long_client = self._long_text_factory()[0]
+                except Exception as e:
+                    self._log(f"[Routing] Сильная модель не запустилась: {e}. Длинные тексты идут как обычно.")
+                if self._long_client is not None:
+                    self._log(f"[Routing] Тексты от {self._long_text_min_words} слов идут сразу в {self._long_client.name}.")
+            return self._long_client
 
     def _pick_client(self, text: str) -> LLMClient:
         """
@@ -233,19 +432,40 @@ class Translator:
         """Принудительно записать кэш на диск (R-6)."""
         try:
             self.cache.flush()
+            self._save_pending()
         except Exception:
             pass
 
+    def _cancelled(self) -> bool:
+        return self.cancel_event is not None and self.cancel_event.is_set()
+
+    def _warmup_note(self) -> None:
+        """Одноразовая подсказка перед самым первым запросом к модели: холодный
+        старт (загрузка модели в память) может занять до нескольких минут."""
+        if not self._warmup_logged:
+            self._warmup_logged = True
+            self._log(
+                "⏳ Первый запрос к модели: если она ещё не загружена в память, "
+                "это может занять до нескольких минут…"
+            )
+
     # ---------- одиночная строка ----------
-    def translate(self, text: str, target_lang: str = "ru_ru", client: Optional[LLMClient] = None) -> str:
+    def translate(self, text: str, target_lang: Optional[str] = None, client: Optional[LLMClient] = None) -> str:
         """
         Перевод одной строки.
         - пропускаем уже русские строки
         - пропускаем строки без латиницы (только цифры/символы/плейсхолдеры)
         - используем кэш (с учётом целевого языка — R-3)
         - при ошибке сети / лимита — оставляем исходник
+
+        target_lang=None → снимок языка, зафиксированный на старте прогона (P0-3).
         """
+        target_lang = target_lang or self.target_lang
         if not text:
+            return text
+
+        # отмена запрошена — не начинаем новых запросов, оставляем исходник
+        if self._cancelled():
             return text
 
         # уже русский без латиницы → не трогаем
@@ -256,38 +476,56 @@ class Translator:
         if not _has_latin(text):
             return text
 
+        # ID и прочее без слов. Проверка стоит до кэша, чтобы старая запись их не подменила.
+        if _is_bare_id(text) or is_untranslatable(text):
+            return text
+
         cached = self.cache.get(text, target_lang)
         if cached is not None:
             return cached
+        if self.cache_only:
+            return text
+        # Брак уже записан в этом прогоне или в прошлом: основную модель о том же не спрашиваем,
+        # строку переведёт второй проход. Так проход «сначала интерфейс» и повторы строки между
+        # модами не стоят лишних запросов.
+        if client is None:
+            key = (text, target_lang)
+            with self._rejected_lock:
+                known = key in self._rejected or key in self._pending_open
+            if known:
+                self._note_rejected(text, target_lang)
+                return text
 
         # если клиент не задан явно — выбираем по сложности строки (STEP 5)
-        use_client = client or self._pick_client(text)
+        use_client = client or self._client_for_long_text(text) or self._pick_client(text)
         src_tokens = _extract_tokens(text)
-        out = self._retry_call(lambda: self._request_single(text, target_lang, use_client))
-        if out is None:
-            out = text  # при окончательной неудаче — исходник
+        out = strip_newline_dots(text, self._translate_masked(text, target_lang, use_client))
+        # Сбой, отмена, пустой ответ или брак: отдаём исходник
+        if self._answer_rejected(out, src_tokens, target_lang, text):
+            # Сильная модель уже ответила: второй проход спросил бы её же о том же.
+            if self._is_model_fault(out) and (client is not None or use_client is not self._long_client):
+                self._note_rejected(text, target_lang)
+            return text
 
-        # проверка плейсхолдеров
-        dst_tokens = _extract_tokens(out)
-        if src_tokens != dst_tokens and self.strict:
-            out = text
-
-        # пишем в кэш либо только переводы, либо и фоллбеки (в зависимости от флага)
-        if out != text or self.cache_fallbacks:
+        # В кэш идёт только настоящий перевод, иначе английский останется навсегда:
+        # следующий прогон со здоровой моделью возьмёт его из кэша без запроса.
+        if out != text:
             self.cache.put(text, out, target_lang)
             self.cache.save()
         return out
 
     # ---------- пачка строк (с дедупом, чанкингом и фоллбеком) ----------
-    def translate_many(self, texts: List[str], target_lang: str = "ru_ru") -> List[str]:
+    def translate_many(self, texts: List[str], target_lang: Optional[str] = None) -> List[str]:
         """
         Переводит список строк той же длины.
+        target_lang=None → снимок языка прогона (P0-3).
         Алгоритм:
         - снимаем кэш + отбрасываем уже русские и без-латинские строки;
         - длинные/сложные строки → сразу одиночками (translate);
         - остальные — группируем уникальные и шлём батчами;
         - при проблемах с батчем → фоллбек на одиночный перевод строки.
         """
+        target_lang = target_lang or self.target_lang
         n = len(texts)
         results: List[Optional[str]] = [None] * n
 
@@ -300,7 +538,7 @@ class Translator:
                 continue
 
             # уже русский и без латиницы
-            if _looks_russian_only(t) or not _has_latin(t):
+            if _looks_russian_only(t) or not _has_latin(t) or _is_bare_id(t) or is_untranslatable(t):
                 results[i] = t
                 continue
 
@@ -309,10 +547,17 @@ class Translator:
             if c is not None:
                 results[i] = c
                 continue
+            if self.cache_only:
+                results[i] = t
+                continue
 
             # сложные строки — одиночками; translate() сам сроутит их на
             # complex/standard-клиент (или на light с пометкой, если его нет).
-            if _is_complex_text(t, self.complex_len_threshold):
+            if (
+                self.batch_size <= 1
+                or _is_complex_text(t, self.complex_len_threshold)
+                or self._client_for_long_text(t) is not None
+            ):
                 results[i] = self.translate(t, target_lang)
                 continue
 
@@ -330,6 +575,10 @@ class Translator:
         outputs_for_uniq: Dict[str, str] = {}
 
         for off in range(0, len(uniq_texts), self.batch_size):
+            # отмена во время многострочного перевода — прекращаем, остальные
+            # строки останутся исходными (файл быстро «завершится» → stop сработает)
+            if self._cancelled():
+                break
             chunk = uniq_texts[off : off + self.batch_size]
 
             # попытка батч-запроса с ретраями (массовые строки → основной client)
@@ -341,18 +590,36 @@ class Translator:
                 print(f"[BatchFatal] {e} → fallback to single for this chunk")
                 translated_chunk = None
 
-            # если батч сломался — одиночками
+            # отмена во время батча — оставляем исходники, дальше не идём
+            if self._cancelled():
+                for t in chunk:
+                    outputs_for_uniq.setdefault(t, t)
+                break
+
+            # если батч сломался — одиночками, НО не при таймауте: молчащий сервер
+            # иначе дал бы шторм одиночных ретраев (по timeout на каждую строку).
             if translated_chunk is None or len(translated_chunk) != len(chunk):
-                translated_chunk = [self.translate(t, target_lang) for t in chunk]
+                if isinstance(self._last_error, (LLMTimeoutError, LLMCancelledError)):
+                    self._log(
+                        "⏱ Модель не ответила вовремя — строки этого блока оставлены "
+                        "без перевода (без шторма одиночных запросов)."
+                    )
+                    translated_chunk = list(chunk)  # исходники
+                else:
+                    translated_chunk = [self.translate(t, target_lang) for t in chunk]
 
             # валидация плейсхолдеров + кэш
             for src, out in zip(chunk, translated_chunk):
-                want = src_tokens_ref[src]
-                got  = _extract_tokens(out)
-                if want != got and self.strict:
+                # Модель потеряла токен разметки: эту строку спрашиваем отдельно
+                if out is None:
+                    out = self.translate(src, target_lang)
+                out = strip_newline_dots(src, out)
+                if self._answer_rejected(out, src_tokens_ref[src], target_lang, src):
+                    if out != src:
+                        self._note_rejected(src, target_lang)
                     out = src
                 outputs_for_uniq[src] = out
-                if out != src or self.cache_fallbacks:
+                if out != src:
                     self.cache.put(src, out, target_lang)
 
             # периодически сохраняем кэш (дебаунс внутри cache.save)
@@ -367,15 +634,70 @@ class Translator:
         return [r if r is not None else "" for r in results]
 
     # ---------- механизм ретраев ----------
+    def _answer_rejected(self, out: Optional[str], src_tokens: Tuple[str, ...], target_lang: str, source: str) -> bool:
+        """Такой ответ нельзя показывать и кэшировать: в следующий прогон строка спросится снова."""
+        reason = self._rejection_reason(out, src_tokens, target_lang, source)
+        if reason is not None and self.outcomes is not None:
+            error = self._last_error
+            with self._rejected_lock:
+                self.outcomes[source] = reason
+                if reason == "error" and error is not None:
+                    text = f"{type(error).__name__}: {str(error)[:200]}"
+                    self.errors[text] = self.errors.get(text, 0) + 1
+        return reason is not None
+
+    def _rejection_reason(self, out: Optional[str], src_tokens: Tuple[str, ...], target_lang: str,
+                          source: str) -> Optional[str]:
+        """Первая проверка, которую не прошёл ответ (её подписи — speed_test.REASON_TITLES), или None."""
+        if not out:
+            return "error" if self._last_error is not None else "empty"
+        checks = (
+            ("cjk", lambda: _has_foreign_cjk(out, target_lang)),
+            ("mixed_script", lambda: has_mixed_script_word(out)),
+            ("prompt_leak", lambda: bool(PROMPT_LEAK.explain(out, source))),
+            ("too_long", lambda: looks_hallucinated(source, out)),
+            ("intro", lambda: has_intro_or_raw_mask(source, out)),
+            ("foreign_latin", lambda: bool(foreign_latin_words(source, out))),
+            ("code", lambda: protected_code_changed(source, out)),
+            ("tags", lambda: bool(invented_tags(source, out))),
+            ("no_cyrillic", lambda: answer_without_cyrillic(source, out, target_lang)),
+            ("leftover_english", lambda: bool(leftover_english_words(source, out, target_lang))),
+            ("glossary", lambda: self._glossary_rejects(source, out)),
+            ("tokens", lambda: self.strict and src_tokens != _extract_tokens(out)),
+        )
+        for name, failed in checks:
+            if failed():
+                return name
+        return None
+
+    def _translate_masked(self, text: str, target_lang: str, client: LLMClient) -> Optional[str]:
+        """Перевод без разметки в запросе. Если модель потеряла токен, ещё раз целиком."""
+        masked = mask(text)
+        answer = self._retry_call(
+            lambda: self._request_single(masked.core, target_lang, client, bool(masked.tokens))
+        )
+        if not answer:
+            return None
+        restored = unmask(answer, masked)
+        if restored is not None:
+            return restored
+        return self._retry_call(lambda: self._request_single(text, target_lang, client))
+
     def _retry_call(self, func):
         attempts = 0
         last_err: Optional[Exception] = None
+        self._last_error = None
         while attempts < self.max_attempts:
+            if self._cancelled():
+                break
             attempts += 1
             try:
                 return func()
             except Exception as e:
                 last_err = e
+                # отмена пользователем — не ретраим, выходим немедленно
+                if self._cancelled():
+                    break
                 msg = str(e).lower()
                 is_rate = (
                     isinstance(e, RateLimitError)
@@ -393,6 +715,7 @@ class Translator:
                 print(f"[Retry] attempt {attempts}/{self.max_attempts}, sleep {delay:.1f}s, err={e}")
                 time.sleep(delay)
         if last_err:
+            self._last_error = last_err
             print(f"[TranslateError] giving up after {attempts} attempts: {last_err}")
         return None
 
@@ -406,19 +729,43 @@ class Translator:
         return _render_prompt(BATCH_SYSTEM_PROMPT_TEMPLATE, target_lang)
 
     # ---------- вызовы LLM через клиент ----------
-    def _request_single(self, text: str, target_lang: str, client: LLMClient) -> str:
+    def _request_single(self, text: str, target_lang: str, client: LLMClient, masked: bool = False) -> str:
+        # Пояснение о токенах только там, где они есть: иначе модель выдумывает их сама
+        # («Leaves» → «[[0]] Leafs [[1]]») и чаще оставляет строку непереведённой.
+        system = self._single_system_prompt(target_lang) + (MASK_PROMPT_NOTE if masked else "")
+        system += self._glossary_note([text])
         messages = [
-            {"role": "system", "content": self._single_system_prompt(target_lang)},
+            {"role": "system", "content": system},
             {"role": "user", "content": text},
         ]
-        out = client.chat(messages, temperature=0, timeout=60)
+        self._warmup_note()
+        if self._before_request:
+            self._before_request()
+        out = client.chat(
+            messages, temperature=0, max_tokens=_single_token_cap(text),
+            timeout=self.single_timeout, cancel_event=self.cancel_event,
+        )
         return out.strip()
 
-    def _request_batch(self, texts: List[str], target_lang: str, client: LLMClient) -> List[str]:
-        user_content = json.dumps(texts, ensure_ascii=False)
+    def _request_batch(self, texts: List[str], target_lang: str, client: LLMClient) -> List[Optional[str]]:
+        """Элемент None: модель потеряла токен разметки в этой строке."""
+        masked = [mask(t) for t in texts]
+        cores = [m.core for m in masked]
+        user_content = json.dumps(cores, ensure_ascii=False)
+        system = self._batch_system_prompt(target_lang)
+        if any(m.tokens for m in masked):
+            system += MASK_PROMPT_NOTE
+        system += self._glossary_note(cores)
         messages = [
-            {"role": "system", "content": self._batch_system_prompt(target_lang)},
+            {"role": "system", "content": system},
             {"role": "user", "content": user_content},
         ]
-        raw = client.chat(messages, temperature=0, timeout=90)
-        return _coerce_json_array(raw.strip(), expected_len=len(texts))
+        self._warmup_note()
+        if self._before_request:
+            self._before_request()
+        raw = client.chat(
+            messages, temperature=0, max_tokens=_batch_token_cap(cores),
+            timeout=self.batch_timeout, cancel_event=self.cancel_event,
+        )
+        answers = _coerce_json_array(raw.strip(), expected_len=len(texts))
+        return [unmask(a, m) for a, m in zip(answers, masked)]

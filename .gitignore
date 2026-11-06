@@ -1,6 +1,7 @@
 # secrets & cache
 secrets.json
 translations_cache.json
+src/translations_cache.before-hex-cleanup.json
 
 # env / build
 .venv/

@@ -1,0 +1,101 @@
+{
+"pack": "ATM10",
+"total_files": 1579,
+"wall_s": 69.6,
+"single_requests": 176801,
+"batch_requests": 21,
+"batch_items": 1736,
+"avg_batch": 82.7,
+"prompt_chars": 99135693,
+"peak_conc": 1,
+"threads": 7,
+"ticks": 1579,
+"cache_entries": 178536,
+"log_kinds": [
+[
+"[OK][snbt-struct]",
+946
+],
+[
+"[OK][jar]",
+406
+],
+[
+"[OK][kubejs]",
+215
+],
+[
+"[WARN][snbt-struct]",
+14
+],
+[
+"[OK][snbt]",
+14
+],
+[
+"[OK][lang]",
+5
+],
+[
+"[ERR][lang]",
+1
+]
+],
+"errors": 15,
+"err_samples": [
+"[WARN][snbt-struct] config/ftbquests/quests/chapters/aether.snbt: Syntax error at 'type', line 2325, position 21463, type NAME → fallback ftb_snbt",
+"[WARN][snbt-struct] config/ftbquests/quests/chapters/bumblezone.snbt: Syntax error at '\n\t\t\t}]\n\t\t\tx: 12.5d\n\t\t\ty: 5.5d\n\t\t}\n\t\t{\n\t\t\tdependencies: [', line 5523, position 4262",
+"[WARN][snbt-struct] config/ftbquests/quests/chapters/pneumaticcraft.snbt: 'NoneType' object has no attribute 'value' → fallback ftb_snbt",
+"[WARN][snbt-struct] config/ftbquests/quests/chapters/industrial_foregoing.snbt: Syntax error at ':', line 12336, position 23919, type COLON → fallback ftb_snbt",
+"[WARN][snbt-struct] config/ftbquests/quests/chapters/justdirethings.snbt: Syntax error at '[', line 12336, position 23921, type LBRACKET → fallback ftb_snbt",
+"[WARN][snbt-struct] config/ftbquests/quests/chapters/create.snbt: Syntax error at '{', line 12336, position 23922, type LBRACE → fallback ftb_snbt",
+"[WARN][snbt-struct] config/ftbquests/quests/chapters/cataclysm.snbt: Syntax error at 'type', line 22245, position 19921, type NAME → fallback ftb_snbt",
+"[WARN][snbt-struct] config/ftbquests/quests/chapters/mekanism_reactors.snbt: 'NoneType' object has no attribute 'value' → fallback ftb_snbt"
+],
+"outfiles": [
+[
+"config/*.snbt",
+960
+],
+[
+"jar_lang/*.json",
+406
+],
+[
+"kubejs/*.js",
+215
+],
+[
+"kubejs/*.json",
+5
+]
+],
+"ftb_lang_out_sample": [
+"config/ftbquests/quests/lang/el_gr/chapter_group.snbt",
+"config/ftbquests/quests/lang/el_gr/chapters/achapter_2r_6the_atm_star.snbt",
+"config/ftbquests/quests/lang/en_us/chapter.snbt"
+],
+"ftb_lang_out_locales": [
+[
+"en_us",
+71
+],
+[
+"pt_br",
+71
+],
+[
+"fr_fr",
+71
+],
+[
+"tr_tr",
+71
+],
+[
+"id_id",
+67
+]
+],
+"out_mb": 38.7
+}

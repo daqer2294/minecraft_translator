@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from typing import Sequence, Tuple, Optional
 
 import ftb_snbt_lib as slib
@@ -10,6 +11,11 @@ from ftb_snbt_lib.tag import Compound, List as NbtList, String as StringTag
 
 from .. import config
 from ..utils.helpers import ensure_dir_for_file, is_probably_text
+
+# ftb_snbt_lib держит лексер и парсер в глобальном состоянии. Параллельный разбор
+# падает или молча портит результат, поэтому loads/dumps идут по одному. Перевод
+# выполняется вне замка и воркеров не задерживает.
+_SNBT_LOCK = threading.Lock()
 
 # ---------- Minecraft форматирование (§) ----------
 
@@ -32,6 +38,8 @@ _FORCED_TEXT_KEYS = {
     "hover_text",
     "chapter_title",
 }
+
+_TEXT_COMPONENTS = {"minecraft:custom_name", "minecraft:item_name", "minecraft:lore"}
 
 
 def _split_minecraft_formatting(text: str) -> Tuple[str, str]:
@@ -112,13 +120,31 @@ def _is_path_technical(path: Sequence[str]) -> bool:
         "background",
         "shape",
         "dimension",
+        # ссылки на квесты: изменённый ID рвёт связи в книге
+        "dependencies",
+        "dependency",
+        "linked_quest",
+        "autofocus_id",
+        "click",
+        # команда выполняется игрой, перевод её ломает
+        "command",
     }
     if last_lower in technical_keys:
         return True
 
-    # спец-кейс FTB Quests: tasks.*.type — это тип задачи, его нельзя переводить
-    if last_lower == "type":
-        if any(seg.lower() == "tasks" for seg in path):
+    # Компоненты предметов с пространством имён ("ftbfiltersystem:filter") — данные
+    # мода. Текст среди них только в ванильных имени и описании.
+    if any(":" in seg and seg.lower() not in _TEXT_COMPONENTS for seg in path):
+        return True
+
+    lowered = [seg.lower() for seg in path]
+    if "tasks" in lowered:
+        # спец-кейс FTB Quests: tasks.*.type — это тип задачи, его нельзя переводить
+        if last_lower == "type":
+            return True
+        # Предмет в задании — то, с чем квест сравнивает предмет игрока. Перевод его
+        # имени может сломать выполнение (в игре не проверялось, это предосторожность).
+        if "item" in lowered or "items" in lowered:
             return True
 
     return False
@@ -147,7 +173,7 @@ def _translate_plain_text(text: str, translator, path: Sequence[str]) -> str:
 
     # 2) Явно текстовые поля — переводим даже если строка короткая
     if _is_path_force_text(path):
-        return translator.translate(text, target_lang=config.TARGET_LANG)
+        return translator.translate(text)
 
     # 3) Остальное: аккуратная эвристика
 
@@ -159,7 +185,7 @@ def _translate_plain_text(text: str, translator, path: Sequence[str]) -> str:
     if not is_probably_text(text, config.SAFE_MAX_LEN):
         return text
 
-    return translator.translate(text, target_lang=config.TARGET_LANG)
+    return translator.translate(text)
 
 
 # ---------- перевод chat JSON-компонентов ----------
@@ -297,24 +323,52 @@ def _translate_nbt_tag(tag, translator, path: Sequence[str] = ()):
 
 # ---------- публичные функции ----------
 
-def translate_snbt_text_structured(text: str, translator) -> str:
+def translate_snbt_text_structured(text: str, translator, official_text: Optional[str] = None) -> Optional[str]:
     """
     SNBT → NBT → рекурсивный перевод строк → SNBT.
+
+    official_text — готовый перевод этого же файла (плоский lang FTB Quests). Его
+    значения переносятся без изменений, в модель идут только недостающие ключи.
+    Возвращает None, если переводить нечего и файл писать не нужно.
     """
-    root = slib.loads(text)  # Compound
-    root = _translate_nbt_tag(root, translator, path=())
-    return slib.dumps(root, comma_sep=False)
+    with _SNBT_LOCK:
+        root = slib.loads(text)  # Compound
+        official = slib.loads(official_text) if official_text is not None else None
+    if official is None:
+        root = _translate_nbt_tag(root, translator, path=())
+    else:
+        missing = [k for k in root.keys() if k not in official or official[k] == root[k]]
+        if not missing:
+            return None
+        for key in missing:
+            root[key] = _translate_nbt_tag(root[key], translator, (str(key),))
+        for key in official.keys():
+            if key not in missing:
+                root[key] = official[key]
+    with _SNBT_LOCK:
+        return slib.dumps(root, comma_sep=False)
 
 
-def translate_snbt_file_structured(src_path: str, dst_path: str, translator) -> None:
+def translate_snbt_file_structured(
+    src_path: str, dst_path: str, translator, official_path: Optional[str] = None,
+) -> bool:
     """
-    Читает SNBT, переводит структурно, сохраняет.
+    Читает SNBT, переводит структурно, сохраняет. Возвращает False, если весь файл
+    уже переведён официально и записывать нечего.
     """
-    with open(src_path, "r", encoding="utf-8") as f:
+    with open(src_path, "r", encoding="utf-8-sig") as f:
         data = f.read()
 
-    out = translate_snbt_text_structured(data, translator)
+    official = None
+    if official_path:
+        with open(official_path, "r", encoding="utf-8-sig") as f:
+            official = f.read()
+
+    out = translate_snbt_text_structured(data, translator, official)
+    if out is None:
+        return False
 
     ensure_dir_for_file(dst_path)
     with open(dst_path, "w", encoding="utf-8", newline="\n") as f:
         f.write(out)
+    return True

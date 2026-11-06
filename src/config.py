@@ -7,8 +7,10 @@ from dataclasses import dataclass
 
 # ========== Speed knobs / performance ==========
 MAX_WORKERS_FILES = 6          # параллельная обработка файлов
-BATCH_SIZE = 100               # размер пачки строк на 1 запрос
-CACHE_FALLBACKS = True         # использовать кэш переводов
+# Размер пачки строк на 1 запрос; 1 означает по одной строке. Замер на 200 строках Cobblemon,
+# Qwen 2.5 3B на Mac M2: по одной 99 с, пачки по 25 112 с, по 100 190 с (пачки разваливались,
+# и строки переспрашивались по одной). В пачках и перевод хуже: «Блок-энтрейтент Тип».
+BATCH_SIZE = int(os.environ.get("BATCH_SIZE", "1"))
 RETRY_MAX_ATTEMPTS = 6
 RETRY_BASE_DELAY = 2.0
 RETRY_MAX_DELAY = 30.0
@@ -50,7 +52,18 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 # Закрывает R-4 / Q-1: base_url теперь конфигурируем (OpenAI, DeepSeek, Qwen,
 # llama.cpp server, LM Studio, Ollama /v1, vLLM ...).
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com")
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://127.0.0.1:11434")
+
+# Длинные тексты сразу идут в сильную модель, если она есть в Ollama или скачан Standard.
+# На 100 описаниях: сильная 100 чистых из 100, основная 76. Без сильной всё идёт как обычно.
+LONG_TEXT_STRONG = os.environ.get("LONG_TEXT_STRONG", "1") != "0"
+LONG_TEXT_MIN_WORDS = int(os.environ.get("LONG_TEXT_MIN_WORDS", "15"))
+
+# Словарь терминов из языковых файлов сборки: в запрос идут только термины самой строки.
+GLOSSARY_ENABLED = os.environ.get("GLOSSARY_ENABLED", "1") != "0"
+
+# Сначала переводить по всем модам названия, меню и подсказки, потом описания и книги.
+PRIORITY_FIRST = os.environ.get("PRIORITY_FIRST", "1") != "0"
 
 # Локальный инференс (llama.cpp / GGUF)
 LOCAL_MODEL_PATH = os.environ.get("LOCAL_MODEL_PATH", "")       # путь к .gguf (in-process)
@@ -60,24 +73,56 @@ LOCAL_MODEL_LABEL = os.environ.get("LOCAL_MODEL_LABEL", "local-gguf")
 # Режим работы переводчика: "local" | "external" | "hybrid"
 TRANSLATOR_MODE = os.environ.get("TRANSLATOR_MODE", "local")
 
+# ========== Каталог данных приложения (модели, проба железа, секреты) ==========
+# Сюда кладём скачанные GGUF-модели, кэш пробы железа и secrets.json, чтобы не
+# мусорить в рабочей папке. КРИТИЧНО для frozen-сборки: раньше secrets.json писался
+# в dirname(sys.executable) — т.е. ВНУТРЬ MinecraftTranslator.app/Contents/MacOS/
+# (бандл может быть read-only, ключ терялся при переустановке).
+APP_DATA_DIR = os.environ.get("MC_TRANSLATOR_HOME") or os.path.join(
+    os.path.expanduser("~"), ".minecraft_translator"
+)
+MODELS_DIR = os.path.join(APP_DATA_DIR, "models")
+HARDWARE_CACHE_PATH = os.path.join(APP_DATA_DIR, "hardware.json")
+
+
+def ensure_app_dirs() -> None:
+    """Создать каталоги приложения (идемпотентно)."""
+    os.makedirs(MODELS_DIR, exist_ok=True)
+
+
 # ===== Загрузка ключа из secrets.json (если есть) =====
 def _base_dir_for_user_files() -> str:
+    """Legacy-каталог (рядом с exe / корень репозитория). Только для ЧТЕНИЯ
+    старого secrets.json — запись туда больше не делаем."""
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 BASE_DIR = _base_dir_for_user_files()
-SECRETS_PATH = os.path.join(BASE_DIR, "secrets.json")
 
-try:
-    if os.path.exists(SECRETS_PATH):
-        with open(SECRETS_PATH, "r", encoding="utf-8") as _sf:
-            _secrets = json.load(_sf)
-            if not OPENAI_API_KEY:
-                OPENAI_API_KEY = _secrets.get("OPENAI_API_KEY", OPENAI_API_KEY)
-except Exception:
-    # Если секреты не прочитались — тихо игнорируем
-    pass
+# Канонический путь секретов — в каталоге данных пользователя.
+SECRETS_PATH = os.path.join(APP_DATA_DIR, "secrets.json")
+# Старое расположение: читаем как фоллбек, чтобы у существующих пользователей
+# не пропал уже сохранённый ключ. Не пишем.
+LEGACY_SECRETS_PATH = os.path.join(BASE_DIR, "secrets.json")
+
+
+def _load_api_key_from_secrets() -> str:
+    for path in (SECRETS_PATH, LEGACY_SECRETS_PATH):
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as _sf:
+                    key = (json.load(_sf) or {}).get("OPENAI_API_KEY", "")
+                    if key:
+                        return key
+        except Exception:
+            # Если секреты не прочитались — тихо игнорируем и пробуем следующий путь
+            continue
+    return ""
+
+
+if not OPENAI_API_KEY:
+    OPENAI_API_KEY = _load_api_key_from_secrets()
 
 
 # ========== Конфигурация провайдера (A-1) ==========
@@ -106,11 +151,19 @@ class ProviderConfig:
     external_model: str = "gpt-4o-mini"
 
     # локальная Ollama (OpenAI-совместимый эндпоинт /v1, ключ не нужен)
-    ollama_base_url: str = "http://localhost:11434"
+    ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_model: str = ""           # имя выбранной модели, напр. "qwen2.5:3b"
+
+    # Сильная модель второго прохода: переводит только строки, где основная дала брак.
+    # Имя модели в Ollama. Если её нет, берётся скачанный Standard, если нет и его,
+    # проход пропускается. "off" отключает проход. Ничего не скачивается само.
+    strong_model: str = os.environ.get("TRANSLATOR_STRONG_MODEL", "llama3.1:8b-instruct-q4_K_M")
 
     # авто-выбор модели по железу (STEP 1-2) + двумерный роутинг (STEP 5)
     tier: str = "light"          # выбранный тир железа: "light" | "standard"
+    # Профиль видеокарты: "auto" как раньше; "fast_cpu": основная модель на процессоре,
+    # видеокарта целиком под сильную, и длинные тексты идут ей одновременно с короткими.
+    gpu_profile: str = os.environ.get("GPU_PROFILE", "auto")
     light_model_id: str = ""     # id из model_registry (пусто → default_for_tier("light"))
     standard_model_id: str = ""  # id из model_registry (пусто → default_for_tier("standard"))
 
@@ -130,23 +183,10 @@ PROVIDER = ProviderConfig(
 )
 
 
-# ========== Каталог данных приложения (модели, проба железа) ==========
-# Сюда кладём скачанные GGUF-модели и кэш пробы железа, чтобы не мусорить в
-# рабочей папке и не гонять пробу/скачивание при каждом запуске.
-APP_DATA_DIR = os.environ.get("MC_TRANSLATOR_HOME") or os.path.join(
-    os.path.expanduser("~"), ".minecraft_translator"
-)
-MODELS_DIR = os.path.join(APP_DATA_DIR, "models")
-HARDWARE_CACHE_PATH = os.path.join(APP_DATA_DIR, "hardware.json")
-
-
-def ensure_app_dirs() -> None:
-    """Создать каталоги приложения (идемпотентно)."""
-    os.makedirs(MODELS_DIR, exist_ok=True)
-
-
 # ========== Кэш ==========
-DEFAULT_CACHE_PATH = os.environ.get("TRANSLATIONS_CACHE", "translations_cache.json")
+# Абсолютные пути: из Finder рабочая папка равна «/», и относительная запись там падает.
+DEFAULT_CACHE_PATH = os.environ.get("TRANSLATIONS_CACHE") or os.path.join(APP_DATA_DIR, "translations_cache.json")
+DEFAULT_OUTPUT_DIR = os.path.join(os.path.expanduser("~"), "MinecraftTranslator")
 
 # ========== Эвристики ==========
 SAFE_MAX_LEN = 800                   # максимум длины строки, которую считаем «текстом»

@@ -8,6 +8,8 @@ import threading
 import time
 from typing import Dict, Optional
 
+from .helpers import replace_file
+
 
 class TranslationCache:
     """
@@ -96,7 +98,7 @@ class TranslationCache:
         tmp = f"{self.path}.tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(self._data, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, self.path)  # атомарная замена
+        replace_file(tmp, self.path)  # атомарная замена, с повтором на Windows
         self._dirty = 0
         self._last_save = time.time()
 

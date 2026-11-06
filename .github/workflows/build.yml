@@ -27,6 +27,26 @@ jobs:
             spec: MinecraftTranslator-win.spec
             reqfile: requirements-win.txt
             variant: ""
+          # Windows с NVIDIA, две пробные сборки в одном запуске (сбой не валит остальные):
+          #   -cuda-a: колесо CUDA 12.4 как есть, без cudart64_12.dll и cublas64_12.dll;
+          #   -cuda-b: то же плюс эти DLL из PyPI (nvidia-cuda-runtime-cu12, nvidia-cublas-cu12).
+          - os: windows-latest
+            platform: win
+            arch: x64
+            spec: MinecraftTranslator-win.spec
+            reqfile: requirements-win-cuda.txt
+            variant: "-cuda-a"
+            optional: true
+            timeout_minutes: 60
+          - os: windows-latest
+            platform: win
+            arch: x64
+            spec: MinecraftTranslator-win.spec
+            reqfile: requirements-win-cuda-b.txt
+            variant: "-cuda-b"
+            bundle_cuda: "1"
+            optional: true
+            timeout_minutes: 75
           - os: macos-14         # Apple Silicon, Metal-колесо
             platform: mac
             arch: arm64
@@ -78,8 +98,31 @@ jobs:
       # ЯВНАЯ проверка: без рабочего import llama_cpp job падает с понятным
       # сообщением — чтобы никогда не выпустить «полную» сборку, где local не
       # работает. (Заменяет прежний continue-on-error.)
+      # Какие библиотеки пришли с CUDA-колесом и грузится ли оно без CUDA Toolkit.
+      - name: (CUDA) inspect llama_cpp libraries
+        if: startsWith(matrix.variant, '-cuda')
+        shell: python
+        run: |
+          import glob, importlib.util, os
+          spec = importlib.util.find_spec("llama_cpp")
+          lib = os.path.join(os.path.dirname(spec.origin), "lib")
+          for path in sorted(glob.glob(os.path.join(lib, "*"))):
+              print(os.path.basename(path), os.path.getsize(path))
+          try:
+              import llama_cpp
+              print("import OK", llama_cpp.__version__, "gpu offload:", llama_cpp.llama_supports_gpu_offload())
+          except Exception as e:
+              print("::warning::llama_cpp does not load on the runner (no GPU, no CUDA Toolkit):", e)
+
+      # Тот же отчёт, что даёт MinecraftTranslator.exe --diagnose. На раннере нет драйвера
+      # NVIDIA, так что ggml-cuda.dll здесь не загрузится; важно, на чём именно.
+      - name: (CUDA) diagnose on the runner
+        if: startsWith(matrix.variant, '-cuda')
+        continue-on-error: true
+        run: python -X utf8 -c "from src import win_dll; print(win_dll.diagnose())"
+
       - name: Verify local inference import (fail job if broken)
-        if: matrix.reqfile != ''
+        if: matrix.reqfile != '' && !startsWith(matrix.variant, '-cuda')
         shell: python
         run: |
           import sys
@@ -94,16 +137,26 @@ jobs:
               sys.exit(1)
 
       - name: Build with PyInstaller
+        env:
+          MCT_BUNDLE_CUDA: ${{ matrix.bundle_cuda || '' }}
         run: pyinstaller --noconfirm --clean ${{ matrix.spec }}
 
+      # Все ли DLL llama_cpp и VC++ попали в папку программы. Падает, если чего-то нет.
+      # Печатает импорты каждой DLL: видно, пришли ли cudart64_12/cublas64_12 с колесом.
+      - name: (Windows) check DLLs in the built folder
+        if: runner.os == 'Windows'
+        run: python -X utf8 tools/check_win_bundle.py dist/MinecraftTranslator ${{ matrix.bundle_cuda == '1' && '--expect-cuda' || '' }}
+
       # ---- Packaging ----
-      - name: (Windows) package exe + zip
+      # Сборка Windows теперь папка (onedir): в архиве папка MinecraftTranslator с exe внутри.
+      - name: (Windows) package folder into zip
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $base = "MinecraftTranslator-${{ matrix.platform }}-${{ matrix.arch }}${{ matrix.variant }}"
-          Copy-Item dist/MinecraftTranslator.exe "$base.exe"
-          Compress-Archive -Path "$base.exe" -DestinationPath "$base.zip" -Force
+          if (-not (Test-Path dist/MinecraftTranslator/MinecraftTranslator.exe)) { throw "exe not found in dist/MinecraftTranslator" }
+          Compress-Archive -Path dist/MinecraftTranslator -DestinationPath "$base.zip" -Force
+          Get-ChildItem dist/MinecraftTranslator -Recurse -File | Measure-Object -Property Length -Sum | ForEach-Object { "files: $($_.Count), bytes: $($_.Sum)" }
 
       - name: (macOS) package .app into .dmg + .zip
         if: runner.os == 'macOS'

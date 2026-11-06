@@ -43,7 +43,7 @@
         <div class="row between">
           <label class="check">
             <input type="checkbox" id="dryRun" checked />
-            <span>Проверка без записи (dry-run)</span>
+            <span>Только посчитать, без перевода</span>
           </label>
           <label class="field inline">
             <span>Язык</span>
@@ -114,6 +114,13 @@
               <option value="standard">standard</option>
             </select>
           </label>
+          <label class="field inline" title="На Mac замерено: «fast_cpu» медленнее (52 → 40 строк в минуту). На Windows с NVIDIA не проверено.">
+            <span>Видеокарта</span>
+            <select id="gpuProfileSel">
+              <option value="auto">как обычно</option>
+              <option value="fast_cpu">основная на CPU, GPU под сильную</option>
+            </select>
+          </label>
           <div class="row">
             <button class="btn ghost" id="rescanBtn">Пересканировать железо</button>
           </div>
@@ -139,11 +146,13 @@
           <div class="stat"><b id="stEta">—</b><span>ETA</span></div>
         </div>
         <div class="progress"><div class="bar" id="progBar"></div></div>
+        <pre class="estimate" id="estimateBox" hidden></pre>
         <div class="controls">
           <button class="btn primary" id="startBtn">▶ Старт</button>
           <button class="btn" id="pauseBtn" disabled>⏸ Пауза</button>
           <button class="btn" id="resumeBtn" hidden>▶ Продолжить</button>
           <button class="btn danger" id="stopBtn" disabled>⏹ Стоп</button>
+          <button class="btn ghost" id="packBtn" title="Пак из уже переведённых строк, без модели. Во время перевода кладётся в подпапку partial.">📦 Собрать пак из кэша</button>
         </div>
       </section>
 

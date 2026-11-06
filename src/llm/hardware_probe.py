@@ -4,10 +4,11 @@ from __future__ import annotations
 import json
 import os
 import platform
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass, asdict
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 from .. import config
 
@@ -45,22 +46,50 @@ class HardwareInfo:
 
 # ---------------- GPU ----------------
 
+def _nvidia_smi_candidates() -> List[str]:
+    """Где искать nvidia-smi. Старые драйверы Windows клали его в NVSMI, не в PATH."""
+    found = [shutil.which("nvidia-smi") or "nvidia-smi"]
+    if platform.system() == "Windows":
+        roots = (
+            os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32"),
+            os.path.join(os.environ.get("ProgramFiles", "C:\\Program Files"), "NVIDIA Corporation", "NVSMI"),
+        )
+        for root in roots:
+            path = os.path.join(root, "nvidia-smi.exe")
+            if os.path.isfile(path) and path not in found:
+                found.append(path)
+    return found
+
+
+def _run_quiet_kwargs() -> dict:
+    """
+    Оконное приложение на Windows: без CREATE_NO_WINDOW консольная программа открывает
+    своё окно на время запуска. stdin явно пустой: у оконного процесса нет консоли.
+    """
+    kwargs = {"stdin": subprocess.DEVNULL}
+    if platform.system() == "Windows":
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    return kwargs
+
+
 def _detect_nvidia() -> Optional[Tuple[str, int]]:
     """Вернуть (name, vram_mb) через nvidia-smi или None."""
-    try:
-        out = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-    except (FileNotFoundError, subprocess.SubprocessError, OSError):
-        return None
-    if out.returncode != 0 or not out.stdout.strip():
+    out = None
+    for exe in _nvidia_smi_candidates():
+        try:
+            out = subprocess.run(
+                [exe, "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                **_run_quiet_kwargs(),
+            )
+        except (FileNotFoundError, subprocess.SubprocessError, OSError):
+            out = None
+            continue
+        if out.returncode == 0 and out.stdout.strip():
+            break
+    if out is None or out.returncode != 0 or not out.stdout.strip():
         return None
     # берём первую (самую мощную обычно) карту
     line = out.stdout.strip().splitlines()[0]
@@ -153,6 +182,56 @@ def recommend_tier(gpu_vram_mb: int, cpu_cores: int, ram_mb: int) -> str:
     if cpu_cores >= _STD_MIN_CORES and ram_mb >= _STD_MIN_RAM_MB:
         return "standard"
     return "light"
+
+
+# ---------------- чем считает локальная модель ----------------
+
+_OFFLOAD: List[Optional[bool]] = []
+_OFFLOAD_ERROR: List[str] = []  # [короткий текст, полный traceback], если llama_cpp не загрузилась
+
+
+def gpu_offload_supported() -> Optional[bool]:
+    """Умеет ли установленный llama_cpp считать на GPU (CUDA, Metal). None: llama_cpp не загрузилась."""
+    if not _OFFLOAD:
+        try:
+            from .. import win_dll
+            win_dll.prepare_search_path()
+            import llama_cpp
+            _OFFLOAD.append(bool(llama_cpp.llama_supports_gpu_offload()))
+        except BaseException as e:  # и SystemExit, и KeyboardInterrupt из чужого кода импорта
+            if isinstance(e, KeyboardInterrupt):
+                raise
+            import traceback
+            _OFFLOAD.append(None)
+            _OFFLOAD_ERROR[:] = [f"{type(e).__name__}: {e}", traceback.format_exc()]
+    return _OFFLOAD[0]
+
+
+def llama_cpp_error(full: bool = False) -> str:
+    """Почему не загрузилась llama_cpp: текст исключения или traceback. Пусто, если загрузилась."""
+    gpu_offload_supported()
+    if not _OFFLOAD_ERROR:
+        return ""
+    return _OFFLOAD_ERROR[1] if full else _OFFLOAD_ERROR[0]
+
+
+def inference_device(info: Optional["HardwareInfo"], offload: Optional[bool] = None) -> str:
+    """
+    Что показать в интерфейсе: «GPU: NVIDIA GeForce RTX 4060 Ti» или «CPU». Видеокарта
+    засчитывается, только если сборка llama_cpp умеет на неё переносить слои: CPU-колесо
+    при NVIDIA всё равно считает на процессоре.
+    """
+    if offload is None:
+        offload = gpu_offload_supported()
+    if offload is None:
+        error = llama_cpp_error()
+        return "локальная модель недоступна" + (f" (llama_cpp: {error})" if error else "")
+    name = info.gpu_name if info is not None and info.gpu_available else ""
+    if name and offload:
+        return f"GPU: {name}"
+    if name and "nvidia" in name.lower():
+        return f"CPU (есть {name}, но сборка без CUDA)"
+    return "CPU"
 
 
 # ---------------- публичный API ----------------

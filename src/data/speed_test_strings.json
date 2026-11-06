@@ -1,0 +1,411 @@
+{
+ "_about": "Строки en_us из модов Cobblemon SMP и ATM10 для теста скорости без сборки: 70 до 15 слов, 30 от 15.",
+ "atm10": {
+  "pack": "ATM10 8.4",
+  "short": 65362,
+  "long": 3413,
+  "how": "«Только посчитать» с пустым кэшем, 2026-11-06"
+ },
+ "strings": [
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Choose Local Source"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Operation:"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Ominous Key Spawners"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "CraftPresence - Edit Biome (%1$s)"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Use Max Entity Distance"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Looking At:"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Whipped Dream"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Info Slot 3 Position"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Multiply Y-Axis input by this amount."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Quick Attack"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Body"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Restart Required"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Brushes"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Arrows"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Wireframe flashing over texture"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "One of your modifications requires a restart to take effect."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Fertilizers"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "A mark for an opportunistic Pokémon."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "The identifier of the Audio element to control"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "The Pokémon can use \"not very effective\" moves to deal regular damage."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Detect Technic Pack"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "If enabled, armor stands are rendered."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Edit…"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Has a chance to deal thorns damage equal to its level to the attacker."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "§xYou need to choose an animation first!"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Details"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Critical hits, fully charged bow shots, crossbows, evoker fangs."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Check if the real time's current minute is X."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Cute Ribbon Great"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Increases movement speed while underwater."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Journeymap is not installed on server!"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Stronghold Corridor Chest"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Max Player Oxygen Level"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Display Entities as Head Icons"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Malicious Moonsault"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Burn Time: %s"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Light Gray Polished Willow Seat"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Light Gray Clinkera Small Seat Back"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Stone Crystal Floor"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Claim 1 experience level"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Scintling Goo Block"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Icy Blue Sail"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Skyroot Shovel"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Gray Dark Spruce Raised Seat Back"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Lamp Controller"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Max Sing Time"
+  },
+  {
+   "pack": "ATM10",
+   "text": "The Value of Operators"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Blue Ancient Seat Back"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Natural enchantability factor of Lapis Lazuli items."
+  },
+  {
+   "pack": "ATM10",
+   "text": "Blutonium Block"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Base chance of dropping a random item with kodoku value 1"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Small Granite Brick Wall"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Light Gray Decidrheum Small Seat Back"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Don't Hold %s"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Allows you to teleport to a memorized location"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Red Jacaranda Seat Back"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Raw Bricks"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Craft a Cable Facade"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Get blocks from the storage network into the world with a Constructor"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Cyan Iron Tank Wall"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Filter Hostility"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Ultramarine Foundry Tank"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Steam Turbine Housing"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Crackled Dirt Path"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Click: Changelog, Shift-Click: Download! (In Browser)"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Browse"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Config options that change how certain things in the mod are rendered"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Woven Acacia Planks Stairs"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Gravitite Helmet"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Guava Smoothie"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "The target is attacked with an icy punch. This may also leave the target frozen."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "The user makes a soothing bell chime to cure the status conditions of all its fellow party Pokémon and allies."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Koi fish stop hostile mobs spawns in a 32x32x8 radius. The serenity effect indicates if the player is in that radius."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Shows the \"melee weapon\" crosshair when targeting an instantly breakable block using a melee weapon like a sword, and the \"correct tool\" crosshair if disabled."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "I suspect that its well-developed legs are the result of a life spent on mountains covered in deep snow. The scent it exudes from its flower crown heartens those in proximity."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "This gluttonous Pokémon only assists people with their work because it wants treats. As it runs, it crackles with electricity."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "This Pokémon pulls out the leaf on its head and makes a flute with it. The sound of Nuzleaf's flute strikes fear and uncertainty in the hearts of people lost in a forest."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Enables randomized entity textures\nWorks with resource packs.\nAllows for entity texture customization\nusing the OptiFine format"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "If the Pokémon is holding a Berry to be eaten when its HP is low, it will instead eat the Berry when its HP drops to half or less."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "A Ground-type attack that Gigantamax Sandaconda use. Opponents are trapped in a raging sandstorm for four to five turns."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "The user vibrates to generate a damaging sound wave. This may also lower the target's Sp. Def stat."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Teammate \nETF Only!\nSelect whether a mob must be a teammate of the player\ntrue = teammate, false = not a teammate\n§aisTeammate.<n>=<true|false>"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "Global Variable Float (Optional)\nmatches the CEM animation global variable value\ndefaults to 0\nExample: (for animation variable 'global_var.xyz') global_var.1.xyz= 2 4 6\n§aglobal_var.<n>.<variable>=<list>"
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "The user reflects the target's type to become the same type as the target."
+  },
+  {
+   "pack": "Cobblemon SMP",
+   "text": "If [player radar] is [enabled] this feature allows the server to track players outside of the range of the client.\nPlayers can see each other on the map no matter the distance as long as they are in the same dimension.\nIf this is [enabled] and player radar is [disabled] this feature will not work.\nIf this is [disabled] and player radar is [enabled] this feature will not work, but proximity radar will still work."
+  },
+  {
+   "pack": "ATM10",
+   "text": "The probability that a fart sound plays when sneaking or double jumping while wearing the Whoopee Cushion"
+  },
+  {
+   "pack": "ATM10",
+   "text": "If true, shows the hunger and saturation values of food in its tooltip automatically (without needing to hold SHIFT)"
+  },
+  {
+   "pack": "ATM10",
+   "text": "The marid smelter is extremely faster, doing the process in one percent of the time.\n"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Transfers fluids into or out of the router to/from an adjacent block in the module's direction.\n• Router's buffer must have a fluid container item in it.\n• Can transfer to/from tanks or the world."
+  },
+  {
+   "pack": "ATM10",
+   "text": "Passes tracked mouse/keyboard input data to GLSL uniforms (for example iMouse, fmMouse*, fmKeyEvent, fmCharEvent).\nDisable for deterministic visuals that should ignore user input."
+  },
+  {
+   "pack": "ATM10",
+   "text": "The [#](8B0000)Sigil of Suppression[#]() exerts your will upon the elements themselves, temporarily banishing all fluids within roughly six blocks of you. The liquid vanishes as though it never existed, returning only after you move away.\\\n\\\n[#](2E8B57)A powerful tool for traversing Nether lava oceans. But be wary of deep water; deactivating above a chasm invites a swift end.[#]()"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Export items into an inventory until 10 items are in that inventory using an Item Exporter"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Controls how many times the main animation sequence repeats after the intro has finished.\nEnter 0 for endless looping. Enter 1 for a single full playthrough, which is basically not looping.\nUse 2 or higher for a fixed number of full repeats."
+  },
+  {
+   "pack": "ATM10",
+   "text": "Give your friends, enemies and acquaintances the burial they deserve! It may be best not to do this near things you care about, though.%%n%%nThis spell costs %%val0 mana every fifth of a second. Naturally, the longer you channel it, the deeper the grave. Your friends should thank you, really. Note: Flight is a natural counter to this spell."
+  },
+  {
+   "pack": "ATM10",
+   "text": " An uncommon arrow Banner Pattern that can be found in certain structures and Suspicious Pile of Pollen in Bumblezone dimension"
+  },
+  {
+   "pack": "ATM10",
+   "text": "The first half of the Sal Ammoniac generation process.\n\\\n\\\n**Needs** to be placed on top of a [Sal Ammoniac Tank](entry://apparatus/sal_ammoniac_tank).\n"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Each charge can be further enhanced by [#](8B0000)Anointing[#]() it with certain reagents and a measure of Spiritus:\n\n- [#](B8860B)Fortunate[#](): broken blocks yield Fortune loot.\n\n- [#](B8860B)Heated Tool[#](): broken blocks are smelted on the spot.\n\n- [#](B8860B)Soft Touch[#](): broken blocks are affected by Silk Touch.\n\n- [#](B8860B)Voiding[#](): worthless debris is annihilated rather than dropped."
+  },
+  {
+   "pack": "ATM10",
+   "text": "Farming <item>Ender Lillies<r> from <imp>Extra Utilities 2<r>. They need to be placed on <imp>End Stone<r>, <imp>Grass<r> or <imp>Dirt<r>."
+  },
+  {
+   "pack": "ATM10",
+   "text": "How should placement positions be calculated? Should it copy your current perspective (i.e, first & third person. F5), or should it always use the player head's view line?\n"
+  },
+  {
+   "pack": "ATM10",
+   "text": "Fitted with a [#](8B0000)Primitive Hydration Cell[#](), the Athanor becomes a font of elemental water, saturating and transforming matter at the molecular level. Ensure you supply it with Water, or the cell thirsts in vain.\\\n\\\n[#](2E8B57)Hydration Cells degrade with use, but Unbreaking or Mending enchantments extend their service considerably.[#]()"
+  }
+ ]
+}

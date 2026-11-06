@@ -42,7 +42,7 @@ Minecraft Translator — приложение с простым интерфей
 
 | Платформа | Файл | Локальный перевод |
 |---|---|---|
-| Windows 10/11 (x64) | `MinecraftTranslator-win-x64.exe` / `.zip` | ✅ есть (CPU) |
+| Windows 10/11 (x64) | `MinecraftTranslator-win-x64.zip` (папка, запуск `MinecraftTranslator.exe`) | ✅ есть (CPU) |
 | macOS Apple Silicon (M1–M4) | `MinecraftTranslator-mac-arm64.dmg` / `.zip` | ✅ есть (Metal) |
 | macOS Intel (x86_64) | `MinecraftTranslator-mac-x64-external-only.dmg` / `.zip` | ⚠️ нет — только external / hybrid |
 
@@ -84,13 +84,14 @@ Minecraft Translator — приложение с простым интерфей
    Дождитесь окончания загрузки — это разово (модель весит примерно 1–5 ГБ).
 4. **Укажите входную папку** — папку модпака или его части (`mods`, `config`,
    `kubejs`, `assets` и т.п.).
-5. **Укажите папку вывода** — куда сложить переведённые файлы (получится готовая
-   зеркальная структура / ресурс-пак).
+5. **Укажите папку вывода**: туда попадут ресурспак и файлы квестов. По умолчанию это
+   `~/MinecraftTranslator`. Исходные файлы сборки не меняются.
 6. **Выберите язык** перевода (например, Russian `ru_ru`).
 7. Нажмите **«Старт»** и дождитесь окончания. В логе видно, что переведено, что
    пропущено и где были предупреждения.
-8. Возьмите результат из папки вывода и подключите к игре (как ресурс-пак или
-   разложив по соответствующим папкам сборки).
+8. Положите `MinecraftTranslator_<язык>.zip` в папку `resourcepacks` сборки и включите его
+   в игре. Папки `config` и `kubejs` из результата скопируйте в папку сборки. Официальные
+   переводы модов остаются как есть, пак только добавляет недостающие строки.
 
 > 💡 Совет: перед полным прогоном можно включить **«Проверка без записи
 > (dry-run)»** — приложение прогонит перевод, ничего не записывая, чтобы вы
@@ -125,11 +126,6 @@ Minecraft Translator — приложение с простым интерфей
 ```
 pip install -r requirements.txt
 python src/main.py
-```
-
-Старый Tkinter-интерфейс остаётся как запасной вариант:
-```
-python -m src.gui_main_legacy
 ```
 
 Готовые сборки собираются в GitHub Actions (Windows и macOS параллельно) —
@@ -184,7 +180,6 @@ CMAKE_ARGS="-DGGML_METAL=on" pip install --no-binary=llama-cpp-python "llama-cpp
 ```
 src/main.py             — точка входа (pywebview GUI)
 src/gui/                — Api-мост + web/ (HTML/CSS/JS фронтенд)
-src/gui_main_legacy.py  — прежний Tkinter GUI (fallback)
 src/llm/                — провайдеры (local llama.cpp / OpenAI-совместимый),
                           реестр моделей, проба железа, загрузчик моделей
 src/processors/         — обработчики форматов (SNBT, lang, Patchouli, KubeJS…)
@@ -229,7 +224,7 @@ Prebuilt binaries are on the releases page:
 
 | Platform | File | Local translation |
 |---|---|---|
-| Windows 10/11 (x64) | `MinecraftTranslator-win-x64.exe` / `.zip` | ✅ yes (CPU) |
+| Windows 10/11 (x64) | `MinecraftTranslator-win-x64.zip` (folder, run `MinecraftTranslator.exe`) | ✅ yes (CPU) |
 | macOS Apple Silicon (M1–M4) | `MinecraftTranslator-mac-arm64.dmg` / `.zip` | ✅ yes (Metal) |
 | macOS Intel (x86_64) | `MinecraftTranslator-mac-x64-external-only.dmg` / `.zip` | ⚠️ no — external / hybrid only |
 
@@ -271,13 +266,14 @@ This is expected and safe. The same steps are available in-app via the
    Wait for it to finish — this is a one-time step (the model is roughly 1–5 GB).
 4. **Pick the input folder** — your modpack or a part of it (`mods`, `config`,
    `kubejs`, `assets`, etc.).
-5. **Pick the output folder** — where translated files go (you get a mirrored
-   structure / resource pack).
+5. **Pick the output folder**: the resource pack and quest files go there. The default is
+   `~/MinecraftTranslator`. Original pack files are not changed.
 6. **Choose the target language** (for example Russian `ru_ru`).
 7. Press **“Start”** and wait. The log shows what was translated, skipped, or had
    warnings.
-8. Take the result from the output folder and add it to the game (as a resource
-   pack or by placing files into the matching modpack folders).
+8. Put `MinecraftTranslator_<lang>.zip` into the pack's `resourcepacks` folder and enable it
+   in the game. Copy the `config` and `kubejs` folders from the result into the pack folder.
+   Official mod translations stay as they are; the pack only adds missing strings.
 
 > 💡 Tip: before a full run you can enable **“dry-run”** — the app runs the
 > translation without writing files so you can gauge the volume.
@@ -310,11 +306,6 @@ Requires Python 3.10+.
 ```
 pip install -r requirements.txt
 python src/main.py
-```
-
-The legacy Tkinter UI remains as a fallback:
-```
-python -m src.gui_main_legacy
 ```
 
 Prebuilt binaries are produced by GitHub Actions (Windows and macOS in parallel) —
@@ -368,7 +359,6 @@ mode needs no key.
 ```
 src/main.py             — entry point (pywebview GUI)
 src/gui/                — Api bridge + web/ (HTML/CSS/JS frontend)
-src/gui_main_legacy.py  — legacy Tkinter GUI (fallback)
 src/llm/                — providers (local llama.cpp / OpenAI-compatible),
                           model registry, hardware probe, model downloader
 src/processors/         — format handlers (SNBT, lang, Patchouli, KubeJS…)

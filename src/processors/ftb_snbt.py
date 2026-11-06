@@ -67,7 +67,7 @@ def _translate_scalar(s: str, translator) -> str:
     if not is_probably_text(s, config.SAFE_MAX_LEN):
         return s
 
-    return translator.translate(s, target_lang=config.TARGET_LANG)
+    return translator.translate(s)
 
 
 def _translate_str_token(m: re.Match, translator) -> str:
@@ -134,7 +134,7 @@ def translate_ftb_snbt_file(src_path: str, dst_path: str, translator) -> None:
       - если что-то пошло не так — логирует caller, а мы просто
         сохраняем исходное содержимое (английский, но файл целый)
     """
-    with open(src_path, "r", encoding="utf-8") as f:
+    with open(src_path, "r", encoding="utf-8-sig") as f:
         data = f.read()
 
     try:

@@ -13,7 +13,7 @@ def _translate_value(val: Any, key_hint: str, translator):
         #   – ИЛИ если сама строка очень похожа на обычный текст
         if (key_hint in config.GENERIC_TEXT_KEYS or
                 is_probably_text(val, config.SAFE_MAX_LEN)):
-            return translator.translate(val, target_lang=config.TARGET_LANG)
+            return translator.translate(val)
         return val
 
     if isinstance(val, list):
@@ -33,11 +33,14 @@ def _translate_obj(obj: Dict[str, Any], translator):
     return out
 
 
-def translate_generic_json_file(src_path: str, dst_path: str, translator) -> None:
-    with open(src_path, "r", encoding="utf-8") as f:
+def translate_generic_json(src_path: str, translator):
+    with open(src_path, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
+    return _translate_obj(data, translator)
 
-    result = _translate_obj(data, translator)
+
+def translate_generic_json_file(src_path: str, dst_path: str, translator) -> None:
+    result = translate_generic_json(src_path, translator)
     ensure_dir_for_file(dst_path)
 
     with open(dst_path, "w", encoding="utf-8") as f:

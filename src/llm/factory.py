@@ -2,13 +2,15 @@
 from __future__ import annotations
 
 import os
-from typing import Optional, Tuple, TYPE_CHECKING
+import threading
+from typing import Callable, List, Optional, Tuple, TYPE_CHECKING
 
 from .base import LLMClient
 from .openai_compatible import OpenAICompatibleClient
 from .local_llamacpp import LocalLlamaCppClient
 from . import model_registry as registry
 from . import model_downloader as downloader
+from . import ollama_probe
 
 if TYPE_CHECKING:
     from ..config import ProviderConfig
@@ -19,6 +21,8 @@ def _make_external(cfg) -> OpenAICompatibleClient:
         base_url=cfg.external_base_url,
         api_key=cfg.external_api_key,
         model=cfg.external_model,
+        # Часть моделей внешнего API отвергает max_tokens с HTTP 400.
+        send_max_tokens=False,
     )
 
 
@@ -67,7 +71,19 @@ def _make_local_light(cfg) -> LocalLlamaCppClient:
         model_path=path,
         model=(spec.id if spec else cfg.local_model),
         prompt_cache=cfg.prompt_cache,
+        n_gpu_layers=fast_gpu_layers(cfg),
     )
+
+
+GPU_PROFILES = {
+    "auto": "Как обычно: основная модель на видеокарте, если она есть",
+    "fast_cpu": "Основная модель на процессоре, видеокарта под сильную; длинные тексты идут ей одновременно",
+}
+
+
+def fast_gpu_layers(cfg) -> Optional[int]:
+    """Слои основной модели на GPU. None: автоопределение, как раньше; 0: только процессор."""
+    return 0 if getattr(cfg, "gpu_profile", "auto") == "fast_cpu" else None
 
 
 def _make_local_standard(cfg) -> Optional[LocalLlamaCppClient]:
@@ -92,6 +108,69 @@ def _make_local_standard(cfg) -> Optional[LocalLlamaCppClient]:
         model=spec.id,
         prompt_cache=cfg.prompt_cache,
     )
+
+
+def _find_ollama_model(want: str, names) -> Optional[str]:
+    """Точное имя, имя без тега или начало тега: «llama3.1:8b» подходит к «llama3.1:8b-instruct-q4_K_M»."""
+    for name in names:
+        if name == want or name.split(":")[0] == want or name.startswith(want + "-"):
+            return name
+    return None
+
+
+def build_strong_client(cfg: "ProviderConfig") -> Tuple[Optional[LLMClient], str]:
+    """
+    Клиент для второго прохода по браку основной модели и причина, если его нет.
+    Порядок: выбранная модель в Ollama, затем скачанный Standard. Ничего не скачивает.
+    Внешний API не используется: он платный и не выбран пользователем для этого.
+    """
+    mode = (getattr(cfg, "mode", "local") or "local").lower()
+    want = (getattr(cfg, "strong_model", "") or "").strip()
+    if want.lower() == "off":
+        return None, "Второй проход отключён настройкой strong_model."
+    if mode == "external":
+        return None, "Основная модель внешняя, сильнее локально нет."
+
+    url = cfg.ollama_base_url or ollama_probe.OLLAMA_DEFAULT_URL
+    if want:
+        status = ollama_probe.probe_ollama(url)
+        name = _find_ollama_model(want, [m.name for m in status.models])
+        if name and mode == "ollama" and name == cfg.ollama_model:
+            return None, f"Основная модель уже {name}."
+        if name:
+            return OpenAICompatibleClient(base_url=url, api_key="", model=name), ""
+
+    spec = None if cfg.local_server_url else _resolve_spec(cfg, "standard")
+    if spec is not None and downloader.is_downloaded(spec):
+        from . import hardware_probe as hp
+        if hp.gpu_offload_supported() is None:
+            # Иначе каждый длинный текст и второй проход упрётся в ошибку загрузки DLL.
+            return None, (
+                f"Сильной модели {want or 'Standard'} нет в Ollama, а скачанная Standard не запустится: "
+                f"llama_cpp не загрузилась ({hp.llama_cpp_error()}). Установите «ollama pull {want}»."
+            )
+        return LocalLlamaCppClient(
+            model_path=downloader.local_model_path(spec), model=spec.id, prompt_cache=cfg.prompt_cache,
+        ), ""
+
+    return None, (
+        f"Сильной модели нет: она улучшит результат. Установите «ollama pull {want}» "
+        "или скачайте модель Standard в приложении."
+    )
+
+
+def shared_strong_client(cfg: "ProviderConfig") -> Callable[[], Tuple[Optional[LLMClient], str]]:
+    """Один клиент на прогон: длинные тексты и второй проход не должны загружать модель дважды."""
+    lock = threading.Lock()
+    built: List[Tuple[Optional[LLMClient], str]] = []
+
+    def get() -> Tuple[Optional[LLMClient], str]:
+        with lock:
+            if not built:
+                built.append(build_strong_client(cfg))
+            return built[0]
+
+    return get
 
 
 def build_clients(cfg: "ProviderConfig") -> Tuple[LLMClient, Optional[LLMClient]]:

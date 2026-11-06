@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import threading
 import time
 import traceback
@@ -30,9 +29,9 @@ class _StopRequested(Exception):
 
 class _Control:
     """
-    Кооперативные пауза/стоп. Backend (mirrorer) не знает про них — мы дёргаем
-    checkpoint() из колбэков log/on_tick, которые mirrorer вызывает на границах
-    файлов. Поэтому пауза/стоп срабатывают не мгновенно, а на ближайшей границе.
+    Кооперативные пауза/стоп. checkpoint() вызывается на границах файлов и бросает
+    _StopRequested. wait_if_paused() Translator вызывает перед каждым запросом к
+    модели, поэтому пауза останавливает новые запросы сразу, а не на границе файла.
     """
 
     def __init__(self):
@@ -60,19 +59,17 @@ class _Control:
             self.paused = False
             self._cv.notify_all()
 
+    def wait_if_paused(self):
+        with self._cv:
+            while self.paused and not self.stopped:
+                self._cv.wait()
+
     def checkpoint(self):
         with self._cv:
             while self.paused and not self.stopped:
                 self._cv.wait()
             if self.stopped:
                 raise _StopRequested()
-
-
-def _base_dir_for_user_files() -> str:
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    # src/gui/api.py → корень проекта на два уровня выше src/
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 
 class Api:
@@ -93,6 +90,7 @@ class Api:
         self._worker: Optional[threading.Thread] = None
         self._dl_thread: Optional[threading.Thread] = None
         self._dl_cancel: Optional[threading.Event] = None  # отмена активной загрузки
+        self._translate_cancel: Optional[threading.Event] = None  # отмена активного перевода (рвёт HTTP-запрос к модели)
         self._start_time = 0.0
 
         hw = hp.load_cached()
@@ -113,11 +111,14 @@ class Api:
             "phase": "idle",          # idle|translating|downloading|done|error|stopped
             "message": "",
             "input": "",
-            "output": os.path.abspath("./out_mirror"),
+            "output": config.DEFAULT_OUTPUT_DIR,
             "dry": True,
+            "estimate": None,
             "lang": getattr(config, "TARGET_LANG", "ru_ru"),
             "mode": getattr(config.PROVIDER, "mode", "local"),
             "tier": default_tier,
+            "gpu_profile": getattr(config.PROVIDER, "gpu_profile", "auto"),
+            "gpu_profiles": factory.GPU_PROFILES,
             "key_present": bool(config.OPENAI_API_KEY),
             # прогресс перевода
             "total": 0, "done": 0, "ok": 0, "err": 0, "skip": 0,
@@ -136,9 +137,26 @@ class Api:
             },
         }
         self._refresh_model_status()
+        self._log_llama_cpp_error()
         self._log("Готово. Выберите папку модпака и нажмите «Старт».")
 
+    def _log_llama_cpp_error(self):
+        """Настоящая причина, по которой нет локальной модели, а не только «недоступна»."""
+        error = hp.llama_cpp_error()
+        if error:
+            self._log(f"Локальная модель недоступна, llama_cpp не загрузилась: {error}")
+            self._log("Подробности: запустите программу с ключом --diagnose, отчёт попадёт в diagnose.txt. "
+                      "Перевод через Ollama или внешний API работает и без неё.")
+
     # ================= helpers =================
+
+    @staticmethod
+    def resolve_output(path: Optional[str]) -> str:
+        """Папка вывода. Относительный путь считается от домашней папки, а не от рабочей."""
+        path = os.path.expanduser((path or "").strip())
+        if not path:
+            return config.DEFAULT_OUTPUT_DIR
+        return os.path.abspath(os.path.join(os.path.expanduser("~"), path))
 
     def _hw_dict(self, hw) -> Optional[Dict[str, Any]]:
         if hw is None:
@@ -151,6 +169,7 @@ class Api:
             "cpu_cores": hw.cpu_cores,
             "recommended_tier": hw.recommended_tier,
             "summary": hw.summary(),
+            "device": hp.inference_device(hw),
         }
 
     def _log(self, msg: str):
@@ -230,7 +249,7 @@ class Api:
         return self._snapshot()
 
     def set_output(self, path: str) -> Dict[str, Any]:
-        self._set(output=(path or "").strip() or os.path.abspath("./out_mirror"))
+        self._set(output=self.resolve_output(path))
         return self._snapshot()
 
     def set_dry(self, value: bool) -> Dict[str, Any]:
@@ -241,7 +260,12 @@ class Api:
         code = (code or "ru_ru").strip()
         config.TARGET_LANG = code
         self._set(lang=code)
-        self._log(f"🌐 Язык перевода: {code}")
+        if self._state["running"]:
+            # Текущий прогон использует снимок языка (P0-3) — переключение
+            # применится только со следующего «Старт».
+            self._log(f"🌐 Язык перевода: {code} (применится со следующего запуска)")
+        else:
+            self._log(f"🌐 Язык перевода: {code}")
         return self._snapshot()
 
     def set_mode(self, mode: str) -> Dict[str, Any]:
@@ -283,7 +307,7 @@ class Api:
         if st.available:
             self._log(f"🦙 Ollama найдена ({st.base_url}), моделей: {len(models)}")
         else:
-            self._log("🦙 Ollama не найдена (localhost:11434)")
+            self._log(f"🦙 Ollama не найдена ({st.base_url})")
         return self._snapshot()
 
     def set_ollama_model(self, model_name: str) -> Dict[str, Any]:
@@ -314,13 +338,50 @@ class Api:
         self._log(f"🎚 Тир модели: {tier}")
         return self._snapshot()
 
-    def set_models(self, light_id: str = "", standard_id: str = "") -> Dict[str, Any]:
-        if light_id and registry.get_by_id(light_id):
-            config.PROVIDER.light_model_id = light_id
-        if standard_id and registry.get_by_id(standard_id):
-            config.PROVIDER.standard_model_id = standard_id
-        self._refresh_model_status()
-        self._log("🧩 Модели обновлены.")
+    def build_from_cache(self) -> Dict[str, Any]:
+        """
+        Собрать пак из того, что уже есть в кэше, без модели. Можно во время перевода:
+        тогда пак кладётся в подпапку partial, чтобы не мешать идущему прогону.
+        """
+        inp = (self._state["input"] or "").strip()
+        if not inp or not os.path.isdir(os.path.abspath(os.path.expanduser(inp))):
+            self._set(message="Укажите входную папку.")
+            return self._snapshot()
+        inp = os.path.abspath(os.path.expanduser(inp))
+        out = self.resolve_output(self._state["output"])
+        if self._state["running"]:
+            out = os.path.join(out, "partial")
+        threading.Thread(target=self._run_build_from_cache, args=(inp, out, self._state["lang"]), daemon=True).start()
+        self._log(f"📦 Сборка пака из кэша: {inp} → {out}")
+        return self._snapshot()
+
+    def _run_build_from_cache(self, inp: str, out: str, target_lang: str):
+        class NoModel:
+            name = "cache-only"
+
+            def chat(self, messages, **kwargs):
+                raise RuntimeError("сборка из кэша не спрашивает модель")
+
+        try:
+            # Свежая копия кэша с диска: то, что идущий прогон уже записал.
+            tr = Translator(NoModel(), TranslationCache(config.DEFAULT_CACHE_PATH), strict=True, log=lambda s: None,
+                            target_lang=target_lang)
+            tr.cache_only = True
+            lines = []
+            mirrorer.mirror_translate_dir(inp, out, tr, log=lines.append, target_lang=target_lang)
+            for line in lines:
+                if line.startswith(("[PACK]", "[ERR", "[STOP")):
+                    self._log("📦 " + line)
+        except Exception as e:
+            self._log(f"❌ Сборка из кэша не удалась: {e}")
+
+    def set_gpu_profile(self, profile: str) -> Dict[str, Any]:
+        if profile not in factory.GPU_PROFILES:
+            self._set(message=f"Неизвестный профиль: {profile}")
+            return self._snapshot()
+        config.PROVIDER.gpu_profile = profile
+        self._set(gpu_profile=profile)
+        self._log(f"🎛 Профиль видеокарты: {factory.GPU_PROFILES[profile]}")
         return self._snapshot()
 
     def set_key(self, key: str) -> Dict[str, Any]:
@@ -328,10 +389,12 @@ class Api:
         if not key:
             self._set(message="Ключ пустой.")
             return self._snapshot()
+        # P0-4: пишем в каталог данных пользователя (~/.minecraft_translator),
+        # а НЕ в dirname(sys.executable) — иначе в frozen-сборке ключ уезжал
+        # внутрь MinecraftTranslator.app/Contents/MacOS/ (read-only, теряется).
         try:
-            base_dir = _base_dir_for_user_files()
-            os.makedirs(base_dir, exist_ok=True)
-            with open(os.path.join(base_dir, "secrets.json"), "w", encoding="utf-8") as f:
+            os.makedirs(os.path.dirname(config.SECRETS_PATH), exist_ok=True)
+            with open(config.SECRETS_PATH, "w", encoding="utf-8") as f:
                 json.dump({"OPENAI_API_KEY": key}, f, ensure_ascii=False, indent=2)
         except Exception as e:
             self._set(message=f"Не удалось сохранить ключ: {e}")
@@ -523,6 +586,9 @@ class Api:
             self._state["skip"] += inc_skip
             done = self._state["done"]
             total = self._state["total"] or 1
+            # пошёл реальный прогресс — убираем подсказку про прогрев модели
+            if done > 0 and self._state.get("message"):
+                self._state["message"] = ""
         elapsed = max(0.001, time.time() - self._start_time) if self._start_time else 0.001
         speed = done / elapsed
         remain = max(0, total - done)
@@ -531,7 +597,7 @@ class Api:
         # кооперативные пауза/стоп на границе файла
         self._control.checkpoint()
 
-    def _run_translation(self, inp: str, out: str, write: bool):
+    def _run_translation(self, inp: str, out: str, write: bool, target_lang: str):
         try:
             cache = TranslationCache(config.DEFAULT_CACHE_PATH)
             cfg = config.PROVIDER
@@ -539,7 +605,15 @@ class Api:
             cfg.external_api_key = config.OPENAI_API_KEY
             cfg.tier = self._state["tier"]
             primary, complex_client = factory.build_clients(cfg)
-            tr = Translator(primary, cache, strict=True, complex_client=complex_client, log=self._log)
+            strong_client = factory.shared_strong_client(cfg)
+            # P0-3: язык — снимок на весь прогон (как уже сделано для dry/write)
+            tr = Translator(
+                primary, cache, strict=True, complex_client=complex_client,
+                log=self._log, cancel_event=self._translate_cancel,
+                target_lang=target_lang, before_request=self._control.wait_if_paused,
+                long_text_client=strong_client,
+            )
+            tr.overlap_strong = getattr(cfg, "gpu_profile", "auto") == "fast_cpu"
 
             mirrorer.mirror_translate_dir(
                 inp, out, tr,
@@ -547,7 +621,13 @@ class Api:
                 write=write,
                 on_total=self._on_total,
                 on_tick=self._on_tick,
+                cancel_event=self._translate_cancel,
+                target_lang=target_lang,
+                strong_client=strong_client,
             )
+            # Отмена без исключения из on_tick: mirrorer вышел сам, но это не «Готово».
+            if self._translate_cancel is not None and self._translate_cancel.is_set():
+                raise _StopRequested()
             self._set(phase="done", message="")
             self._log(f"✅ Готово. Результат: {out} ({'saved' if write else 'dry-run'})")
         except _StopRequested:
@@ -556,6 +636,27 @@ class Api:
         except Exception as e:
             self._set(phase="error", message=str(e))
             self._log(f"❌ Ошибка: {e}")
+        finally:
+            self._set(running=False, paused=False)
+
+    def _run_estimate(self, inp: str, target_lang: str):
+        """«Только посчитать»: тот же конвейер, вместо модели заглушки. Модель не нужна и не качается."""
+        from .. import estimate as est_mod
+        try:
+            cfg = config.PROVIDER
+            cfg.mode = self._state["mode"]
+            strong, reason = factory.build_strong_client(cfg) if config.LONG_TEXT_STRONG else (None, "")
+            est = est_mod.estimate_dir(
+                inp, target_lang, config.DEFAULT_CACHE_PATH, strong_available=strong is not None,
+                log=self._log, cancel_event=self._translate_cancel,
+            )
+            lines = est.lines()
+            for line in lines:
+                self._log("🧮 " + line)
+            self._set(phase="done", message="", estimate=lines)
+        except Exception as e:
+            self._set(phase="error", message=str(e))
+            self._log(f"❌ Ошибка подсчёта: {e}")
         finally:
             self._set(running=False, paused=False)
 
@@ -569,17 +670,26 @@ class Api:
             self._state["download"]["cancelled"] = False
 
         inp = (self._state["input"] or "").strip()
-        out = (self._state["output"] or "").strip() or os.path.abspath("./out_mirror")
+        out = self.resolve_output(self._state["output"])
         if not inp:
             self._set(message="Укажите входную папку.")
             return self._snapshot()
         inp = os.path.abspath(os.path.expanduser(inp))
-        out = os.path.abspath(os.path.expanduser(out))
         if not os.path.isdir(inp):
             self._set(message=f"Папка не найдена: {inp}")
             return self._snapshot()
 
         mode = self._state["mode"]
+
+        # «Только посчитать»: модель не нужна, ничего не переводится и не пишется
+        if self._state["dry"]:
+            self._control.reset()
+            self._translate_cancel = threading.Event()
+            self._set(running=True, paused=False, phase="estimating", message="Подсчёт строк…", estimate=None)
+            self._log(f"🧮 Подсчёт без перевода: {inp} | lang: {self._state['lang']}")
+            self._worker = threading.Thread(target=self._run_estimate, args=(inp, self._state["lang"]), daemon=True)
+            self._worker.start()
+            return self._snapshot()
 
         # ollama: нужна выбранная модель (проверять/качать GGUF не надо)
         if mode == "ollama" and not config.PROVIDER.ollama_model:
@@ -614,16 +724,21 @@ class Api:
 
         # запускаем перевод
         self._control.reset()
-        self._set(running=True, paused=False, phase="translating", message="",
+        self._translate_cancel = threading.Event()  # свежее событие отмены на каждый запуск
+        self._set(running=True, paused=False, phase="translating",
+                  message="Подготовка модели… первый ответ может занять до нескольких минут.",
                   total=0, done=0, ok=0, err=0, skip=0, speed=0.0, eta=0.0)
         self._log(
             f"▶️ Старт: {inp} → {out} | "
             f"{'dry-run' if self._state['dry'] else 'write'} | "
             f"lang: {self._state['lang']} | provider: {mode}"
         )
+        # P0-3: снимаем язык ОДИН раз на прогон (как dry/write). Дальнейший set_lang
+        # меняет только следующий запуск и не может расщепить текущий вывод.
         write = not self._state["dry"]
+        target_lang = self._state["lang"]
         self._worker = threading.Thread(
-            target=self._run_translation, args=(inp, out, write), daemon=True
+            target=self._run_translation, args=(inp, out, write, target_lang), daemon=True
         )
         self._worker.start()
         return self._snapshot()
@@ -632,7 +747,7 @@ class Api:
         if self._state["running"]:
             self._control.pause()
             self._set(paused=True)
-            self._log("⏸ Пауза (сработает на границе файла)…")
+            self._log("⏸ Пауза: новые запросы не начнутся, идущие сейчас завершатся.")
         return self._snapshot()
 
     def resume(self) -> Dict[str, Any]:
@@ -645,5 +760,9 @@ class Api:
     def stop(self) -> Dict[str, Any]:
         if self._state["running"]:
             self._control.stop()
-            self._log("⏹ Остановка (сработает на границе файла)…")
+            # реально рвём активный HTTP-запрос к модели (не ждём границы файла)
+            if self._translate_cancel is not None:
+                self._translate_cancel.set()
+            self._set(message="Останавливаю: прерываю текущий запрос к модели…")
+            self._log("⏹ Остановка: прерываю активный запрос к модели…")
         return self._snapshot()
