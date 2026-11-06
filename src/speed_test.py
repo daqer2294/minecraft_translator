@@ -84,10 +84,11 @@ class VramSampler(threading.Thread):
         super().__init__(daemon=True)
         self.samples: List[int] = []
         self.total = 0
-        self._stop = threading.Event()
+        # Не «_stop»: так называется внутренний метод threading.Thread в Python 3.11, и join() его вызывает.
+        self._halt = threading.Event()
 
     def run(self):
-        while not self._stop.is_set():
+        while not self._halt.is_set():
             try:
                 out = subprocess.run(
                     ["nvidia-smi", "--query-gpu=memory.used,memory.total", "--format=csv,noheader,nounits"],
@@ -98,10 +99,10 @@ class VramSampler(threading.Thread):
                 self.total = total
             except Exception:
                 return
-            self._stop.wait(1.0)
+            self._halt.wait(1.0)
 
     def stop(self):
-        self._stop.set()
+        self._halt.set()
 
 
 def _ollama(path: str) -> Optional[dict]:

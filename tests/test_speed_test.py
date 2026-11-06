@@ -105,3 +105,41 @@ class EntryPoint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Sampler(unittest.TestCase):
+    """«TypeError: 'Event' object is not callable» на Windows: поле перекрывало Thread._stop() из Python 3.11."""
+
+    def test_no_attribute_shadows_thread_internals(self):
+        import threading
+        sampler = speed_test.VramSampler()
+        own = set(vars(sampler)) - set(vars(threading.Thread()))
+        thread_names = {n for n in dir(threading.Thread)} | {"_stop", "_started", "_is_stopped", "_tstate_lock"}
+        self.assertEqual(own & thread_names, set())
+
+    def test_join_after_stop_without_nvidia(self):
+        with mock.patch.object(speed_test.subprocess, "run", side_effect=FileNotFoundError()):
+            sampler = speed_test.VramSampler()
+            sampler.start()
+            sampler.stop()
+            sampler.join(3)
+        self.assertFalse(sampler.is_alive())
+        self.assertEqual(sampler.samples, [])
+
+    def test_python_311_like_in_ci(self):
+        import shutil
+        import subprocess as sp
+        py = shutil.which("python3.11") or ("/usr/local/bin/python3.11" if os.path.exists("/usr/local/bin/python3.11") else None)
+        if not py:
+            self.skipTest("нет python3.11")
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        code = (
+            "import ast, sys, threading, subprocess, types\n"
+            f"src = open({os.path.join(root, 'src', 'speed_test.py')!r}, encoding='utf-8').read()\n"
+            "node = next(n for n in ast.parse(src).body if isinstance(n, ast.ClassDef) and n.name == 'VramSampler')\n"
+            "ns = {'threading': threading, 'subprocess': subprocess, 'List': list, 'hp': types.SimpleNamespace(_run_quiet_kwargs=lambda: {})}\n"
+            "exec(compile(ast.Module([node], []), 'speed_test.py', 'exec'), ns)\n"
+            "s = ns['VramSampler'](); s.start(); s.stop(); s.join(3); print('OK')\n"
+        )
+        out = sp.run([py, "-c", code], capture_output=True, text=True, timeout=30)
+        self.assertEqual(out.stdout.strip(), "OK", out.stderr)
