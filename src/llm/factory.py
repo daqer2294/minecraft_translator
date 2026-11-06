@@ -142,6 +142,13 @@ def build_strong_client(cfg: "ProviderConfig") -> Tuple[Optional[LLMClient], str
 
     spec = None if cfg.local_server_url else _resolve_spec(cfg, "standard")
     if spec is not None and downloader.is_downloaded(spec):
+        from . import hardware_probe as hp
+        if hp.gpu_offload_supported() is None:
+            # Иначе каждый длинный текст и второй проход упрётся в ошибку загрузки DLL.
+            return None, (
+                f"Сильной модели {want or 'Standard'} нет в Ollama, а скачанная Standard не запустится: "
+                f"llama_cpp не загрузилась ({hp.llama_cpp_error()}). Установите «ollama pull {want}»."
+            )
         return LocalLlamaCppClient(
             model_path=downloader.local_model_path(spec), model=spec.id, prompt_cache=cfg.prompt_cache,
         ), ""
