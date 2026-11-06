@@ -217,10 +217,29 @@ class BundleCheck(unittest.TestCase):
         with mock.patch("builtins.print"):
             self.assertEqual(check_win_bundle.main(["x", self.dist, self.source]), 1)
 
+    def test_variant_b_has_its_cuda_dlls_once(self):
+        cuda = {"cuda_runtime": ["cudart64_12.dll"], "cublas": ["cublas64_12.dll", "cublasLt64_12.dll"]}
+        for pkg, names in cuda.items():
+            write_lib(os.path.join(self.internal, "nvidia", pkg, "bin"), {n: ([], []) for n in names})
+        errors, report = check_win_bundle.check(self.dist, self.source, system=[], expect_cuda=True)
+        self.assertEqual(errors, [])
+        text = "\n".join(report)
+        self.assertIn("cublasLt64_12.dll: ", text)
+        self.assertIn("копий в сборке: 1", text)
+        self.assertIn("не найдены: nvcuda.dll", text)  # на раннере нет драйвера, cudart и cublas нашлись
+        os.remove(os.path.join(self.internal, "nvidia", "cublas", "bin", "cublasLt64_12.dll"))
+        errors, _ = check_win_bundle.check(self.dist, self.source, system=[], expect_cuda=True)
+        self.assertEqual(errors, ["нет в сборке: nvidia/cublas/bin/cublasLt64_12.dll"])
+
+    def test_variant_a_does_not_require_cuda_dlls(self):
+        with mock.patch("builtins.print"):
+            self.assertEqual(check_win_bundle.main(["x", self.dist, self.source]), 0)
+            self.assertEqual(check_win_bundle.main(["x", self.dist, self.source, "--expect-cuda"]), 1)
+
     def test_ci_runs_the_check_on_windows(self):
         with open(os.path.join(ROOT, ".github", "workflows", "build.yml"), encoding="utf-8") as f:
             text = f.read()
-        self.assertIn("python -X utf8 tools/check_win_bundle.py dist/MinecraftTranslator", text)
+        self.assertIn("python -X utf8 tools/check_win_bundle.py dist/MinecraftTranslator ${{ matrix.bundle_cuda == '1' && '--expect-cuda' || '' }}", text)
         build = text.index("pyinstaller --noconfirm --clean")
         self.assertLess(build, text.index("tools/check_win_bundle.py"))
         self.assertLess(text.index("tools/check_win_bundle.py"), text.index("Compress-Archive"))
@@ -300,6 +319,28 @@ class RealErrorText(unittest.TestCase):
             self.assertIn(part, text)
         loads = text[text.index("Загрузка по очереди"):]
         self.assertLess(loads.index("ggml-base.dll"), loads.index("llama.dll"))
+        self.assertIn("Первая DLL, которая не загрузилась: нет", text)
+
+    def test_diagnose_names_the_first_dll_that_fails_with_its_code(self):
+        tmp = tempfile.mkdtemp()
+        write_lib(tmp, CUDA_LIB)
+        write_lib(tmp, {"cudart64_12.dll": ([], [])})  # как в сборке B: нашлась рядом
+
+        def fake_load(path):
+            name = os.path.basename(path)
+            if name == "ggml-cuda.dll":
+                return f"ОШИБКА WinError 126: {win_dll.WIN_ERRORS[126]} (Could not find module)"
+            return "OK"
+
+        with mock.patch.dict(os.environ, {"LLAMA_CPP_LIB_PATH": tmp}), \
+             mock.patch.object(sys, "platform", "win32"), \
+             mock.patch.object(win_dll, "_load", side_effect=fake_load), \
+             mock.patch.object(win_dll, "prepare_search_path", return_value=[]), \
+             mock.patch.object(win_dll, "_nvcuda_lines", return_value=["nvcuda.dll: проверка подменена"]):
+            text = win_dll.diagnose()
+        loads = text[text.index("Загрузка по очереди"):]
+        self.assertLess(loads.index("cudart64_12.dll: OK"), loads.index("ggml-base.dll: OK"))
+        self.assertIn("Первая DLL, которая не загрузилась: ggml-cuda.dll: ОШИБКА WinError 126", text)
 
 
 class DiagnoseFlag(unittest.TestCase):

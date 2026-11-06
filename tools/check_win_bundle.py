@@ -9,7 +9,10 @@
 ни в сборке, ни в System32 раннера. На раннере нет драйвера NVIDIA, поэтому nvcuda.dll
 там не найдётся всегда; cudart/cublas видно, пришли ли они с колесом.
 
-Запуск: python tools/check_win_bundle.py dist/MinecraftTranslator [папка llama_cpp/lib пакета]
+С ключом --expect-cuda (сборка win-x64-cuda-b) ещё падает, если в _internal/nvidia/*/bin нет
+cudart64_12.dll, cublas64_12.dll или cublasLt64_12.dll, и печатает их размеры и число копий.
+
+Запуск: python tools/check_win_bundle.py dist/MinecraftTranslator [папка llama_cpp/lib пакета] [--expect-cuda]
 """
 from __future__ import annotations
 
@@ -23,13 +26,32 @@ if ROOT not in sys.path:
 from src import win_dll  # noqa: E402
 
 
-def check(dist: str, source_lib: str | None, system: list[str] | None = None) -> tuple[list[str], list[str]]:
+CUDA_DLLS = {"cuda_runtime": ["cudart64_12.dll"], "cublas": ["cublas64_12.dll", "cublasLt64_12.dll"]}
+
+
+def check(dist: str, source_lib: str | None, system: list[str] | None = None,
+          expect_cuda: bool = False) -> tuple[list[str], list[str]]:
     """Возвращает (ошибки, строки отчёта)."""
     errors, report = [], []
     internal = os.path.join(dist, "_internal")
     if not os.path.isdir(internal):
         internal = dist
     bundle_lib = os.path.join(internal, "llama_cpp", "lib")
+    cuda_dirs = [os.path.join(internal, "nvidia", pkg, "bin") for pkg in CUDA_DLLS]
+
+    if expect_cuda:
+        copies: dict[str, list[str]] = {}
+        for folder, _, files in os.walk(dist):
+            for f in files:
+                copies.setdefault(f.lower(), []).append(os.path.join(folder, f))
+        for pkg, names in CUDA_DLLS.items():
+            for name in names:
+                path = os.path.join(internal, "nvidia", pkg, "bin", name)
+                if os.path.isfile(path):
+                    n = len(copies.get(name.lower(), []))
+                    report.append(f"{name}: {path}, {os.path.getsize(path)} байт, копий в сборке: {n}")
+                else:
+                    errors.append(f"нет в сборке: nvidia/{pkg}/bin/{name}")
 
     if source_lib:
         expected = sorted(os.listdir(source_lib))
@@ -40,7 +62,7 @@ def check(dist: str, source_lib: str | None, system: list[str] | None = None) ->
             report.append(f"  {f}: {'есть' if f.lower() in have else 'НЕТ'}")
         errors += [f"нет в сборке: llama_cpp/lib/{f}" for f in missing]
 
-    bundle_dirs = [dist, internal, bundle_lib]
+    bundle_dirs = [dist, internal, bundle_lib] + [d for d in cuda_dirs if os.path.isdir(d)]
     for name in win_dll.VC_RUNTIME:
         where = win_dll.find_in(name, bundle_dirs)
         report.append(f"{name}: {where or 'НЕТ'}")
@@ -70,11 +92,13 @@ def main(argv: list[str]) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     except (AttributeError, ValueError):
         pass
-    dist = argv[1] if len(argv) > 1 else os.path.join("dist", "MinecraftTranslator")
-    source_lib = argv[2] if len(argv) > 2 else win_dll.llama_cpp_lib_dir()
+    expect_cuda = "--expect-cuda" in argv
+    args = [a for a in argv[1:] if not a.startswith("--")]
+    dist = args[0] if args else os.path.join("dist", "MinecraftTranslator")
+    source_lib = args[1] if len(args) > 1 else win_dll.llama_cpp_lib_dir()
     if source_lib and not os.path.isdir(source_lib):
         source_lib = None
-    errors, report = check(dist, source_lib)
+    errors, report = check(dist, source_lib, expect_cuda=expect_cuda)
     print("\n".join(report))
     for e in errors:
         print(f"::error::{e}")

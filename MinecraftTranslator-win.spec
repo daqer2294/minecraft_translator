@@ -63,6 +63,20 @@ try:
 except Exception:
     pass
 
+# Сборка win-x64-cuda-b: CUDA-библиотеки из пакетов nvidia-cuda-runtime-cu12 и nvidia-cublas-cu12
+# в _internal/nvidia/<пакет>/bin. Перед импортом llama_cpp src/win_dll.py добавляет эти папки
+# в PATH и os.add_dll_directory. Без MCT_BUNDLE_CUDA=1 сборка как раньше.
+CUDA_DLLS = {"cuda_runtime": ["cudart64_12.dll"], "cublas": ["cublas64_12.dll", "cublasLt64_12.dll"]}
+if os.environ.get("MCT_BUNDLE_CUDA") == "1":
+    import sys as _sys
+    for _pkg, _names in CUDA_DLLS.items():
+        for _name in _names:
+            _found = [os.path.join(p, "nvidia", _pkg, "bin", _name) for p in _sys.path
+                      if os.path.isfile(os.path.join(p, "nvidia", _pkg, "bin", _name))]
+            if not _found:
+                raise SystemExit(f"MCT_BUNDLE_CUDA=1, но нет nvidia/{_pkg}/bin/{_name}: поставьте requirements-win-cuda-b.txt")
+            binaries.append((_found[0], f"nvidia/{_pkg}/bin"))
+
 a = Analysis(
     ["src/main.py"],
     pathex=[os.path.abspath(".")],

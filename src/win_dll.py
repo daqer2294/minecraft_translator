@@ -22,6 +22,7 @@ import traceback
 from typing import Dict, List, Optional, Tuple
 
 VC_RUNTIME = ("vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll")
+CUDA_RUNTIME = ("cudart64_12.dll", "cublasLt64_12.dll", "cublas64_12.dll")
 # Порядок загрузки, если зависимости в таблице импорта не позволяют выбрать его самим.
 LOAD_ORDER_HINT = ("ggml-base", "ggml-cpu", "ggml-cuda", "ggml", "llama", "mtmd")
 WIN_ERRORS = {
@@ -427,8 +428,20 @@ def diagnose() -> str:
             lines += [f"      {p}" for p in parts]
         lines.append("")
         lines.append("Загрузка по очереди через ctypes (winmode=0, как в llama_cpp):")
-        for f in dependency_order(lib):
-            lines.append(f"  {f}: {_load(os.path.join(lib, f)) if sys.platform == 'win32' else 'пропущено, не Windows'}")
+        sequence = []
+        for name in CUDA_RUNTIME:  # сначала библиотеки CUDA, которые нашлись, затем DLL llama_cpp
+            where = find_in(name, [lib] + search)
+            if where:
+                sequence.append((name, where))
+        taken = {n.lower() for n, _ in sequence}
+        sequence += [(f, os.path.join(lib, f)) for f in dependency_order(lib) if f.lower() not in taken]
+        first_failure = ""
+        for name, full in sequence:
+            result = _load(full) if sys.platform == "win32" else "пропущено, не Windows"
+            lines.append(f"  {name}: {result}")
+            if result.startswith("ОШИБКА") and not first_failure:
+                first_failure = f"{name}: {result}"
+        lines.append(f"Первая DLL, которая не загрузилась: {first_failure or 'нет'}")
         lines.append("")
 
     lines.append("import llama_cpp:")

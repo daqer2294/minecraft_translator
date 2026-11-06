@@ -1,0 +1,10 @@
+# Сборка win-x64-cuda-b: то же, что requirements-win-cuda.txt, плюс библиотеки CUDA из PyPI,
+# которые спецификация кладёт в папку программы (MCT_BUNDLE_CUDA=1).
+#
+# Версии из таблицы «CUDA 12.4 Update 1 Component Versions» в release notes NVIDIA:
+# CUDA Runtime (cudart) 12.4.127, cuBLAS 12.4.5.8. Колёса cu124 llama-cpp-python собираются
+# на CUDA 12.4.1 (build-wheels-cuda.yaml). Драйвер Windows для 12.4 Update 1: от 551.78.
+# В колёсах win_amd64: cudart64_12.dll 0,55 МБ, cublas64_12.dll 100 МБ, cublasLt64_12.dll 474 МБ.
+-r requirements-win-cuda.txt
+nvidia-cuda-runtime-cu12==12.4.127
+nvidia-cublas-cu12==12.4.5.8
