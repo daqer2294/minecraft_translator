@@ -52,7 +52,8 @@ class Report(unittest.TestCase):
         with mock.patch.object(config, "APP_DATA_DIR", home), mock.patch.object(speed_test, "run_profile", side_effect=fake), \
                 mock.patch.object(speed_test, "strong_threads", return_value=[]), \
                 mock.patch.object(speed_test, "run_ollama_profile", side_effect=speed_test.Skipped("Ollama не отвечает")), \
-                mock.patch.object(speed_test.hp, "gpu_offload_supported", return_value=True):
+                mock.patch.object(speed_test.hp, "gpu_offload_supported", return_value=True), \
+                mock.patch.object(speed_test.hp, "get_or_probe", return_value=speed_test.hp.HardwareInfo(True, "NVIDIA GeForce RTX 4060 Ti", 8188, 32000, 14, "standard", 0.0)):
             path = speed_test.report(pack(), limit=4)
         with open(path, encoding="utf-8") as f:
             text = f.read()
@@ -80,7 +81,8 @@ class Report(unittest.TestCase):
                 mock.patch.object(speed_test, "run_profile", side_effect=lambda p, s, b, log: seen.append((b, len(s))) or {"x": 1}), \
                 mock.patch.object(speed_test, "strong_threads", return_value=["потоки: пропущено"]), \
                 mock.patch.object(speed_test, "run_ollama_profile", side_effect=lambda s, b, log, m: seen.append(("ollama", len(s))) or {"x": 1}), \
-                mock.patch.object(speed_test.hp, "gpu_offload_supported", return_value=True):
+                mock.patch.object(speed_test.hp, "gpu_offload_supported", return_value=True), \
+                mock.patch.object(speed_test.hp, "get_or_probe", return_value=speed_test.hp.HardwareInfo(True, "NVIDIA GeForce RTX 4060 Ti", 8188, 32000, 14, "standard", 0.0)):
             path = speed_test.cli(["exe", "--speed-test", "--limit", "10"])
         self.assertEqual(seen, [(None, 10), (None, 10), ("ollama", 10)])
         with open(path, encoding="utf-8") as f:

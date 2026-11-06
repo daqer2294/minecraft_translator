@@ -258,6 +258,10 @@ class Translator:
         self._thread_state = threading.local()
         # Строки, где модель ответила браком: их переводит второй проход.
         self._rejected: Dict[Tuple[str, str], None] = {}
+        # Для теста скорости: причина отката по исходной строке и тексты ошибок модели.
+        # None (по умолчанию) — не записывать, в обычном прогоне это не нужно.
+        self.outcomes: Optional[Dict[str, str]] = None
+        self.errors: Dict[str, int] = {}
         self._rejected_lock = threading.Lock()
         # Длинные тексты сразу в сильную модель. Клиент создаётся при первой такой строке.
         self._long_text_factory = long_text_client if getattr(config, "LONG_TEXT_STRONG", True) else None
@@ -632,21 +636,39 @@ class Translator:
     # ---------- механизм ретраев ----------
     def _answer_rejected(self, out: Optional[str], src_tokens: Tuple[str, ...], target_lang: str, source: str) -> bool:
         """Такой ответ нельзя показывать и кэшировать: в следующий прогон строка спросится снова."""
-        return (
-            not out
-            or _has_foreign_cjk(out, target_lang)
-            or has_mixed_script_word(out)
-            or bool(PROMPT_LEAK.explain(out, source))
-            or looks_hallucinated(source, out)
-            or has_intro_or_raw_mask(source, out)
-            or bool(foreign_latin_words(source, out))
-            or protected_code_changed(source, out)
-            or bool(invented_tags(source, out))
-            or answer_without_cyrillic(source, out, target_lang)
-            or bool(leftover_english_words(source, out, target_lang))
-            or self._glossary_rejects(source, out)
-            or (self.strict and src_tokens != _extract_tokens(out))
+        reason = self._rejection_reason(out, src_tokens, target_lang, source)
+        if reason is not None and self.outcomes is not None:
+            error = self._last_error
+            with self._rejected_lock:
+                self.outcomes[source] = reason
+                if reason == "error" and error is not None:
+                    text = f"{type(error).__name__}: {str(error)[:200]}"
+                    self.errors[text] = self.errors.get(text, 0) + 1
+        return reason is not None
+
+    def _rejection_reason(self, out: Optional[str], src_tokens: Tuple[str, ...], target_lang: str,
+                          source: str) -> Optional[str]:
+        """Первая проверка, которую не прошёл ответ (её подписи — speed_test.REASON_TITLES), или None."""
+        if not out:
+            return "error" if self._last_error is not None else "empty"
+        checks = (
+            ("cjk", lambda: _has_foreign_cjk(out, target_lang)),
+            ("mixed_script", lambda: has_mixed_script_word(out)),
+            ("prompt_leak", lambda: bool(PROMPT_LEAK.explain(out, source))),
+            ("too_long", lambda: looks_hallucinated(source, out)),
+            ("intro", lambda: has_intro_or_raw_mask(source, out)),
+            ("foreign_latin", lambda: bool(foreign_latin_words(source, out))),
+            ("code", lambda: protected_code_changed(source, out)),
+            ("tags", lambda: bool(invented_tags(source, out))),
+            ("no_cyrillic", lambda: answer_without_cyrillic(source, out, target_lang)),
+            ("leftover_english", lambda: bool(leftover_english_words(source, out, target_lang))),
+            ("glossary", lambda: self._glossary_rejects(source, out)),
+            ("tokens", lambda: self.strict and src_tokens != _extract_tokens(out)),
         )
+        for name, failed in checks:
+            if failed():
+                return name
+        return None
 
     def _translate_masked(self, text: str, target_lang: str, client: LLMClient) -> Optional[str]:
         """Перевод без разметки в запросе. Если модель потеряла токен, ещё раз целиком."""

@@ -126,11 +126,14 @@ class OllamaSpeedProfile(unittest.TestCase):
         strings = ["Iron Ingot", "Gold Ingot", "Copper Wire", LONG]
         with mock.patch.object(speed_test.subprocess, "run", side_effect=FileNotFoundError()):
             r = speed_test.run_ollama_profile(strings, "")
-        self.assertEqual((r["main_model"], r["strong_model"]), (MAIN, STRONG))
-        self.assertEqual((r["short_model"], r["long_model"]), (MAIN, STRONG))
+        self.assertEqual((r["main_model"], r["strong_model"], r["long_texts_model"]), (MAIN, STRONG, STRONG))
         self.assertEqual((r["short_strings"], r["long_strings"]), (3, 1))
-        self.assertEqual((r["short_translated"], r["long_translated"]), (2, 1))
+        self.assertEqual((r["short_translated_first_pass"], r["long_translated_first_pass"]), (2, 1))
+        self.assertEqual((r["short_to_second_pass"], r["long_to_second_pass"]), (1, 0))
         self.assertEqual((r["to_second_pass"], r["fixed_by_second_pass"]), (1, 1))
+        self.assertEqual((r["short_translated_final"], r["long_translated_final"], r["translated_final"]), (3, 1, 4))
+        self.assertEqual(r["rollback_reasons"], {"mixed_script": {"short": 1, "long": 0, "to_second_pass": 1}})
+        self.assertEqual(r["model_errors"], {})
         self.assertGreater(r["short_strings_per_minute"], 0)
         self.assertGreater(r["long_strings_per_minute"], 0)
         self.assertNotIn(LONG, self.ollama.texts_for(MAIN))
@@ -139,7 +142,7 @@ class OllamaSpeedProfile(unittest.TestCase):
         argv = ["x", "--speed-test", *args]
         with mock.patch.object(speed_test.subprocess, "run", side_effect=FileNotFoundError()), \
              mock.patch.object(speed_test, "bundled_strings", return_value=["Iron Ingot", "Gold Ingot", LONG, LONG + " Now."]), \
-             mock.patch.object(hp, "probe_hardware", return_value=hp.HardwareInfo(True, "NVIDIA GeForce RTX 4060 Ti", 8188, 32000, 14, "standard", 0.0)):
+             mock.patch.object(hp, "get_or_probe", return_value=hp.HardwareInfo(True, "NVIDIA GeForce RTX 4060 Ti", 8188, 32000, 14, "standard", 0.0)):
             path = speed_test.cli(argv)
         with open(path, encoding="utf-8") as f:
             return f.read()
@@ -154,7 +157,8 @@ class OllamaSpeedProfile(unittest.TestCase):
         self.assertNotIn("TypeError", text)
         self.assertIn(f"[ollama] {speed_test.OLLAMA_TITLE}", text)
         self.assertIn(f"  main_model: {MAIN}", text)
-        self.assertIn(f"  long_model: {STRONG}", text)
+        self.assertIn(f"  long_texts_model: {STRONG}", text)
+        self.assertIn("  Оценка ATM10 8.4", text)
         self.assertIn("  short_strings_per_minute: ", text)
         self.assertIn("  long_strings_per_minute: ", text)
 
